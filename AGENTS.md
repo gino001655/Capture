@@ -217,22 +217,31 @@ Do not generate large amounts of documentation merely for completeness.
 
 ---
 
-## Git policy — NEVER EXECUTE GIT
+## Git policy — READ-ONLY INSPECTION ONLY
 
 Git is an explicit learning objective.
 
-Never execute Git commands.
+Codex may execute Git commands only when they are unambiguously read-only and used to inspect repository state or history.
 
-Never change Git state or history.
+Examples of allowed read-only inspection include:
 
-This includes, but is not limited to:
-
-* `git init`
 * `git status`
 * `git diff`
+* `git log`
+* `git show`
+* `git ls-files`
+* `git rev-parse`
+* `git branch --show-current`
+* `git remote -v`
+
+Never execute a Git command that changes the working tree, index, refs, configuration, remotes, or history.
+
+Prohibited operations include, but are not limited to:
+
+* `git init`
 * `git add`
 * `git commit`
-* `git branch`
+* creating, deleting, or renaming branches
 * `git switch`
 * `git checkout`
 * `git merge`
@@ -244,9 +253,12 @@ This includes, but is not limited to:
 * `git restore`
 * `git revert`
 * `git stash`
-* `git tag`
+* creating or deleting tags
+* changing Git configuration or remotes
 
 Do not create branches, commits, tags, remotes, merges, or staged changes.
+
+If a Git command is ambiguous or might mutate repository state, do not execute it. Explain the command and let the user run it.
 
 When Git activity becomes appropriate:
 
@@ -257,7 +269,7 @@ When Git activity becomes appropriate:
 5. let the user run them;
 6. help interpret the output afterward.
 
-The user should personally perform all Git operations.
+The user should personally perform all Git operations that change repository state or history.
 
 Prefer small, coherent commit boundaries.
 
