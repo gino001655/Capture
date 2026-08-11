@@ -1,0 +1,20 @@
+# Local environment files and secrets
+.env
+.env.*
+!.env.example
+
+# JavaScript dependencies and generated output
+node_modules/
+.next/
+dist/
+coverage/
+
+# Rust build output
+target/
+
+# Logs
+*.log
+
+# Operating-system files
+.DS_Store
+Thumbs.db
