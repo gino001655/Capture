@@ -1,0 +1,11 @@
+{
+  "name": "capture",
+  "private": true,
+  "packageManager": "pnpm@11.21.0",
+  "scripts": {
+    "dev": "pnpm --filter @capture/web dev",
+    "build": "pnpm --filter @capture/web build",
+    "lint": "pnpm --filter @capture/web lint",
+    "typecheck": "pnpm --filter @capture/web typecheck"
+  }
+}

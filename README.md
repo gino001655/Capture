@@ -6,7 +6,38 @@ This repository is also a software-engineering learning project. Development pro
 
 ## Current status
 
-The project is in the repository-foundation stage. No Web or Desktop application has been scaffolded yet.
+The repository foundation and minimal local Web foundation are complete. The Next.js application can run locally, but capture and API behavior have not been implemented yet.
+
+## Local development
+
+Requirements:
+
+- Node.js 24 LTS
+- Corepack with pnpm 11.21.0 enabled
+
+Install the workspace dependencies:
+
+```powershell
+pnpm.cmd install --frozen-lockfile
+```
+
+Start the Web application:
+
+```powershell
+pnpm.cmd dev
+```
+
+Then open `http://localhost:3000`.
+
+Run the current automated checks:
+
+```powershell
+pnpm.cmd lint
+pnpm.cmd typecheck
+pnpm.cmd build
+```
+
+This Windows setup uses the `.cmd` entry because the current PowerShell execution policy blocks the generated `pnpm.ps1` shim. On shells without that restriction, the equivalent command is simply `pnpm`.
 
 ## Planned system
 
@@ -42,5 +73,3 @@ Web capture
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Collaboration rules](AGENTS.md)
-
-Setup and development commands will be added when the first application is scaffolded.

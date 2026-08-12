@@ -6,6 +6,7 @@
 # JavaScript dependencies and generated output
 node_modules/
 .next/
+*.tsbuildinfo
 dist/
 coverage/
 
