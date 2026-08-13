@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   MAX_CAPTURE_LENGTH,
   validateCaptureRequest,
+  validateJobResult,
 } from "./capture.ts";
 
 test("accepts and trims valid capture content", () => {
@@ -36,4 +37,15 @@ test("rejects content over the maximum length", () => {
 
   assert.equal(result.success, false);
   assert.equal(result.code, "INVALID_CONTENT");
+});
+
+test("accepts and trims a processing result", () => {
+  assert.deepEqual(validateJobResult({ result: "  Processed note  " }), {
+    success: true,
+    result: "Processed note",
+  });
+});
+
+test("rejects an empty processing result", () => {
+  assert.equal(validateJobResult({ result: "   " }).success, false);
 });

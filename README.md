@@ -6,9 +6,9 @@ This repository is also a software-engineering learning project. Development pro
 
 ## Current status
 
-The repository foundation and first local Web-to-API slice are complete. The Web application can submit a capture to `POST /api/captures`, validate it on the server, and display the returned pending capture.
+The first local end-to-end slice is complete. The API supports pending, processing, and completed captures, and the Tauri worker can claim and process one capture at a time.
 
-The result is intentionally temporary: captures are not stored in a database and disappear when the page is refreshed.
+The result is intentionally temporary: captures are stored only in the Next.js server process and disappear when that server restarts.
 
 ## Local development
 
@@ -16,6 +16,9 @@ Requirements:
 
 - Node.js 24 LTS
 - Corepack with pnpm 11.21.0 enabled
+- Rust stable MSVC toolchain
+- Visual Studio 2022 Build Tools with Desktop development with C++
+- Microsoft Edge WebView2
 
 Install the workspace dependencies:
 
@@ -31,13 +34,19 @@ pnpm.cmd dev
 
 Then open `http://localhost:3000`.
 
+In a second PowerShell window, start the Desktop worker:
+
+```powershell
+pnpm.cmd desktop:dev
+```
+
 Run the current automated checks:
 
 ```powershell
-pnpm.cmd lint
-pnpm.cmd test
-pnpm.cmd typecheck
-pnpm.cmd build
+pnpm.cmd lint       # Web ESLint
+pnpm.cmd test       # Web tests + Desktop Rust tests
+pnpm.cmd typecheck  # Web + Desktop TypeScript
+pnpm.cmd build      # Web production build (stop next dev first)
 ```
 
 This Windows setup uses the `.cmd` entry because the current PowerShell execution policy blocks the generated `pnpm.ps1` shim. On shells without that restriction, the equivalent command is simply `pnpm`.

@@ -4,9 +4,11 @@
   "packageManager": "pnpm@11.21.0",
   "scripts": {
     "dev": "pnpm --filter @capture/web dev",
+    "desktop:dev": "pnpm --filter @capture/desktop tauri dev",
     "build": "pnpm --filter @capture/web build",
+    "desktop:build": "pnpm --filter @capture/desktop tauri build",
     "lint": "pnpm --filter @capture/web lint",
-    "test": "pnpm --filter @capture/web test",
-    "typecheck": "pnpm --filter @capture/web typecheck"
+    "test": "pnpm --filter @capture/web test && pnpm --filter @capture/desktop test",
+    "typecheck": "pnpm --filter @capture/web typecheck && pnpm --filter @capture/desktop typecheck"
   }
 }

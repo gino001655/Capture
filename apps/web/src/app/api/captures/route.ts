@@ -1,7 +1,5 @@
-import {
-  validateCaptureRequest,
-  type Capture,
-} from "../../../lib/capture.ts";
+import { validateCaptureRequest } from "../../../lib/capture.ts";
+import { captureStore } from "../../../lib/capture-store.ts";
 
 export async function POST(request: Request) {
   let requestBody: unknown;
@@ -34,12 +32,7 @@ export async function POST(request: Request) {
     );
   }
 
-  const capture: Capture = {
-    id: crypto.randomUUID(),
-    content: validation.content,
-    status: "pending",
-    createdAt: new Date().toISOString(),
-  };
+  const capture = captureStore.create(validation.content);
 
   return Response.json({ capture }, { status: 201 });
 }

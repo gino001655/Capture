@@ -41,6 +41,8 @@ Success criteria:
 
 ## 3. First local end-to-end slice
 
+Status: Complete.
+
 Objective: connect a minimal Tauri Desktop worker and fake processor to the local API.
 
 Success criteria:

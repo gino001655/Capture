@@ -1,6 +1,6 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 
 import { MAX_CAPTURE_LENGTH, type Capture } from "@/lib/capture";
 
@@ -40,11 +40,14 @@ function readCapture(payload: unknown): Capture | null {
   }
 
   const candidate = capture as Record<string, unknown>;
+  const status = candidate.status;
 
   if (
     typeof candidate.id !== "string" ||
     typeof candidate.content !== "string" ||
-    candidate.status !== "pending" ||
+    (status !== "pending" &&
+      status !== "processing" &&
+      status !== "completed") ||
     typeof candidate.createdAt !== "string"
   ) {
     return null;
@@ -53,8 +56,14 @@ function readCapture(payload: unknown): Capture | null {
   return {
     id: candidate.id,
     content: candidate.content,
-    status: candidate.status,
+    status,
     createdAt: candidate.createdAt,
+    ...(typeof candidate.result === "string"
+      ? { result: candidate.result }
+      : {}),
+    ...(typeof candidate.completedAt === "string"
+      ? { completedAt: candidate.completedAt }
+      : {}),
   };
 }
 
@@ -63,11 +72,65 @@ export function CaptureForm() {
   const [submission, setSubmission] = useState<SubmissionState>({
     kind: "idle",
   });
+  const [pollingMessage, setPollingMessage] = useState<string | null>(null);
 
   const isSubmitting = submission.kind === "submitting";
 
+  useEffect(() => {
+    if (
+      submission.kind !== "success" ||
+      submission.capture.status === "completed"
+    ) {
+      return;
+    }
+
+    const captureId = submission.capture.id;
+    let cancelled = false;
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+
+    async function refreshCapture() {
+      try {
+        const response = await fetch(`/api/captures/${captureId}`, {
+          cache: "no-store",
+        });
+        const payload: unknown = await response.json();
+        const capture = response.ok ? readCapture(payload) : null;
+
+        if (!cancelled && capture !== null) {
+          setSubmission({ kind: "success", capture });
+          setPollingMessage(null);
+
+          if (capture.status !== "completed") {
+            timeoutId = setTimeout(refreshCapture, 2_000);
+          }
+          return;
+        }
+
+        if (!cancelled) {
+          setPollingMessage("Could not read the latest status. Retrying...");
+          timeoutId = setTimeout(refreshCapture, 2_000);
+        }
+      } catch {
+        if (!cancelled) {
+          setPollingMessage("Could not reach the server. Retrying...");
+          timeoutId = setTimeout(refreshCapture, 2_000);
+        }
+      }
+    }
+
+    timeoutId = setTimeout(refreshCapture, 2_000);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId !== undefined) {
+        clearTimeout(timeoutId);
+      }
+    };
+  }, [submission]);
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setPollingMessage(null);
     setSubmission({ kind: "submitting" });
 
     try {
@@ -140,6 +203,10 @@ export function CaptureForm() {
           <strong>Capture accepted</strong>
           <span>Status: {submission.capture.status}</span>
           <p>{submission.capture.content}</p>
+          {submission.capture.result ? (
+            <p>Result: {submission.capture.result}</p>
+          ) : null}
+          {pollingMessage ? <span>{pollingMessage}</span> : null}
         </div>
       ) : null}
 
@@ -151,8 +218,8 @@ export function CaptureForm() {
       ) : null}
 
       <p className="temporaryNote">
-        This milestone returns a pending capture to this page only. Refreshing
-        the page removes it because persistent storage is not connected yet.
+        This milestone stores captures in server memory. Restarting the Next.js
+        server removes them because persistent storage is not connected yet.
       </p>
     </section>
   );

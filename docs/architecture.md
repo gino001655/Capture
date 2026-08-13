@@ -2,7 +2,7 @@
 
 ## Status
 
-This document records the initial architecture direction. Components remain planned until their milestone is implemented and verified.
+The local Web, API, and Desktop boundaries are implemented for the first end-to-end slice. Persistence, authentication, deployment, and real processors remain planned.
 
 ## System context
 
@@ -11,7 +11,7 @@ flowchart LR
     U["User on Web / iPhone PWA"] --> W["Next.js Web UI"]
     W --> A["Cloud API in Next.js"]
     D["Tauri Desktop Worker"] --> A
-    A --> M["MongoDB Atlas"]
+    A -. "planned" .-> M["MongoDB Atlas"]
     D --> P["Local Processor"]
     P --> D
     D -. "later" .-> H["Heptabase"]
@@ -32,6 +32,13 @@ flowchart LR
 - Validate requests and enforce authentication and authorization.
 - Own capture persistence and job lifecycle state.
 - Provide HTTP endpoints used by both Web and Desktop clients.
+
+For the current local slice, the API runs at `http://localhost:3000` and keeps captures in the Next.js server process. It exposes:
+
+- `POST /api/captures` to create a pending capture;
+- `GET /api/captures/{id}` to read its current state;
+- `POST /api/jobs/claim` to atomically move one pending job to processing;
+- `PATCH /api/jobs/{id}` to record a completed result.
 
 ### MongoDB Atlas
 
