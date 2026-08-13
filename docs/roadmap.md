@@ -4,6 +4,8 @@ The roadmap is ordered by dependency and learning value, not by visual completen
 
 ## 0. Repository foundation
 
+Status: Complete.
+
 Objective: establish collaboration rules, architecture direction, repository hygiene, and an initial roadmap without application code.
 
 Success criteria:
@@ -14,6 +16,8 @@ Success criteria:
 
 ## 1. Development-environment audit
 
+Status: Complete.
+
 Objective: inspect the existing Node.js, pnpm, Rust, Cargo, and Windows prerequisites before installing anything.
 
 Success criteria:
@@ -23,6 +27,8 @@ Success criteria:
 - No tool is installed without an explanation and user approval.
 
 ## 2. Minimal local Web and API path
+
+Status: Complete.
 
 Objective: create a capture in a minimal Next.js page and send it to a local Route Handler.
 

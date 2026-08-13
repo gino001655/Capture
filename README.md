@@ -6,7 +6,9 @@ This repository is also a software-engineering learning project. Development pro
 
 ## Current status
 
-The repository foundation and minimal local Web foundation are complete. The Next.js application can run locally, but capture and API behavior have not been implemented yet.
+The repository foundation and first local Web-to-API slice are complete. The Web application can submit a capture to `POST /api/captures`, validate it on the server, and display the returned pending capture.
+
+The result is intentionally temporary: captures are not stored in a database and disappear when the page is refreshed.
 
 ## Local development
 
@@ -33,6 +35,7 @@ Run the current automated checks:
 
 ```powershell
 pnpm.cmd lint
+pnpm.cmd test
 pnpm.cmd typecheck
 pnpm.cmd build
 ```

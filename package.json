@@ -6,6 +6,7 @@
     "dev": "pnpm --filter @capture/web dev",
     "build": "pnpm --filter @capture/web build",
     "lint": "pnpm --filter @capture/web lint",
+    "test": "pnpm --filter @capture/web test",
     "typecheck": "pnpm --filter @capture/web typecheck"
   }
 }

@@ -28,14 +28,22 @@ body {
 
 main {
   display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(20rem, 1.15fr);
+  gap: clamp(2rem, 6vw, 6rem);
+  width: min(100%, 72rem);
   min-height: 100vh;
-  place-items: center;
+  margin: 0 auto;
+  align-items: center;
   padding: 2rem;
 }
 
-.hero {
-  width: min(100%, 46rem);
-  padding: clamp(2rem, 7vw, 5rem);
+.intro {
+  padding: clamp(1rem, 4vw, 3rem) 0;
+}
+
+.capturePanel {
+  width: 100%;
+  padding: clamp(1.5rem, 5vw, 3rem);
   border: 1px solid var(--border);
   border-radius: 2rem;
   background: var(--surface);
@@ -53,7 +61,7 @@ main {
 }
 
 h1 {
-  max-width: 12ch;
+  max-width: 10ch;
   margin: 0;
   font-size: clamp(2.5rem, 8vw, 5rem);
   letter-spacing: -0.055em;
@@ -86,4 +94,133 @@ h1 {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 0.25rem rgba(36, 117, 84, 0.14);
+}
+
+.panelHeading,
+.formFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.panelHeading {
+  margin-bottom: 1.5rem;
+}
+
+.panelHeading .eyebrow {
+  margin-bottom: 0.45rem;
+}
+
+h2 {
+  margin: 0;
+  font-size: clamp(1.65rem, 4vw, 2.35rem);
+  letter-spacing: -0.035em;
+}
+
+.temporaryBadge {
+  padding: 0.45rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(224, 190, 120, 0.22);
+  color: #6f5521;
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+form {
+  display: grid;
+  gap: 0.65rem;
+}
+
+label {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+textarea {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: 1rem;
+  outline: none;
+  background: rgba(255, 255, 255, 0.82);
+  color: var(--foreground);
+  font: inherit;
+  line-height: 1.55;
+  padding: 1rem;
+}
+
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 0.25rem rgba(36, 117, 84, 0.12);
+}
+
+.characterCount {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+button {
+  border: 0;
+  border-radius: 0.85rem;
+  background: var(--foreground);
+  color: white;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  padding: 0.8rem 1.15rem;
+}
+
+button:disabled {
+  cursor: wait;
+  opacity: 0.6;
+}
+
+.result {
+  display: grid;
+  gap: 0.35rem;
+  margin-top: 1.25rem;
+  border-radius: 1rem;
+  padding: 1rem;
+  font-size: 0.9rem;
+}
+
+.result p {
+  margin: 0.25rem 0 0;
+  overflow-wrap: anywhere;
+  line-height: 1.5;
+}
+
+.successResult {
+  background: rgba(36, 117, 84, 0.1);
+  color: #17563c;
+}
+
+.errorResult {
+  background: rgba(162, 55, 55, 0.1);
+  color: #7d2727;
+}
+
+.temporaryNote {
+  margin: 1.25rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+@media (max-width: 760px) {
+  main {
+    grid-template-columns: 1fr;
+    gap: 1rem;
+    align-content: center;
+  }
+
+  .intro {
+    padding-bottom: 0;
+  }
+
+  h1 {
+    max-width: 12ch;
+  }
 }

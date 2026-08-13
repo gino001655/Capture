@@ -2,11 +2,13 @@
   "name": "@capture/web",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
+    "test": "node --test src/lib/capture.test.mts src/app/api/captures/route.test.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

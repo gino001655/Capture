@@ -1,18 +1,21 @@
+import { CaptureForm } from "./capture-form";
+
 export default function Home() {
   return (
     <main>
-      <section className="hero">
+      <section className="intro">
         <p className="eyebrow">Personal Capture System</p>
-        <h1>Capture web foundation is ready.</h1>
+        <h1>Get it out of your head.</h1>
         <p className="summary">
-          The first runnable Web milestone is in place. Capturing and processing
-          will be connected in the next vertical slice.
+          Send one piece of content across the first browser-to-server boundary.
+          Processing and permanent storage come later.
         </p>
         <div className="status" aria-label="Current project status">
           <span className="statusDot" aria-hidden="true" />
-          Local Web foundation
+          Local Web + API
         </div>
       </section>
+      <CaptureForm />
     </main>
   );
 }
