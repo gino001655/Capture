@@ -2,7 +2,7 @@
 
 ## Status
 
-The local Web, API, and Desktop boundaries are implemented and verified with MongoDB Atlas persistence. Authentication, deployment, and real processors remain planned.
+The Web/API is deployed to Vercel and verified with Google authentication, MongoDB Atlas persistence, and the local Desktop worker. The fake processor remains in place; Codex and destination integrations are planned next.
 
 ## System context
 

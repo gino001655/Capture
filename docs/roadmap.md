@@ -78,6 +78,8 @@ Success criteria:
 
 ## 6. First Vercel cloud slice
 
+Status: Complete. The authenticated production Web/API, Atlas persistence, and Desktop round trip were manually verified against the Vercel deployment.
+
 Objective: deploy the authenticated Web/API application and run the complete pipeline against it.
 
 Success criteria:
