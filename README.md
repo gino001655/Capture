@@ -8,7 +8,7 @@ This repository is also a software-engineering learning project. Development pro
 
 The first local end-to-end slice is complete. The API supports pending, processing, and completed captures, and the Tauri worker can claim and process one capture at a time.
 
-The result is intentionally temporary: captures are stored only in the Next.js server process and disappear when that server restarts.
+MongoDB-backed persistence is implemented and locally verified against Atlas, including restart persistence and the complete Web-to-Desktop-to-Web path. Authentication is the next milestone before public deployment.
 
 ## Local development
 
@@ -25,6 +25,8 @@ Install the workspace dependencies:
 ```powershell
 pnpm.cmd install --frozen-lockfile
 ```
+
+Copy `apps/web/.env.example` to `apps/web/.env.local`, then provide the Atlas connection URI and development database name. `.env.local` contains secrets and must not be committed.
 
 Start the Web application:
 

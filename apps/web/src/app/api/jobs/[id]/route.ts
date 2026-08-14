@@ -37,7 +37,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   const { id } = await context.params;
-  const capture = captureStore.complete(id, validation.result);
+  const capture = await captureStore.complete(id, validation.result);
 
   if (capture === undefined) {
     return Response.json(

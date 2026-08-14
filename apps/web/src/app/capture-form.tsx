@@ -218,8 +218,8 @@ export function CaptureForm() {
       ) : null}
 
       <p className="temporaryNote">
-        This milestone stores captures in server memory. Restarting the Next.js
-        server removes them because persistent storage is not connected yet.
+        Captures persist in MongoDB Atlas when the server environment is
+        configured. The local processor remains temporary.
       </p>
     </section>
   );

@@ -1,7 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { POST } from "./route.ts";
+import type { Capture } from "../../../lib/capture.ts";
+import { createCapturePostHandler } from "./route.ts";
+
+const POST = createCapturePostHandler({
+  async create(content): Promise<Capture> {
+    return {
+      id: "test-capture-id",
+      content,
+      status: "pending",
+      createdAt: "2026-08-14T00:00:00.000Z",
+    };
+  },
+});
 
 function createRequest(body: string) {
   return new Request("http://localhost/api/captures", {

@@ -1,38 +1,47 @@
 import { validateCaptureRequest } from "../../../lib/capture.ts";
-import { captureStore } from "../../../lib/capture-store.ts";
+import {
+  captureStore,
+  type CaptureStore,
+} from "../../../lib/capture-store.ts";
 
-export async function POST(request: Request) {
-  let requestBody: unknown;
+type CaptureCreator = Pick<CaptureStore, "create">;
 
-  try {
-    requestBody = await request.json();
-  } catch {
-    return Response.json(
-      {
-        error: {
-          code: "INVALID_JSON",
-          message: "Request body must be valid JSON.",
+export function createCapturePostHandler(store: CaptureCreator) {
+  return async function POST(request: Request) {
+    let requestBody: unknown;
+
+    try {
+      requestBody = await request.json();
+    } catch {
+      return Response.json(
+        {
+          error: {
+            code: "INVALID_JSON",
+            message: "Request body must be valid JSON.",
+          },
         },
-      },
-      { status: 400 },
-    );
-  }
+        { status: 400 },
+      );
+    }
 
-  const validation = validateCaptureRequest(requestBody);
+    const validation = validateCaptureRequest(requestBody);
 
-  if (!validation.success) {
-    return Response.json(
-      {
-        error: {
-          code: validation.code,
-          message: validation.message,
+    if (!validation.success) {
+      return Response.json(
+        {
+          error: {
+            code: validation.code,
+            message: validation.message,
+          },
         },
-      },
-      { status: 400 },
-    );
-  }
+        { status: 400 },
+      );
+    }
 
-  const capture = captureStore.create(validation.content);
+    const capture = await store.create(validation.content);
 
-  return Response.json({ capture }, { status: 201 });
+    return Response.json({ capture }, { status: 201 });
+  };
 }
+
+export const POST = createCapturePostHandler(captureStore);

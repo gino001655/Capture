@@ -54,6 +54,8 @@ Success criteria:
 
 ## 4. Persistent shared data
 
+Status: Complete. Atlas persistence, restart survival, atomic job claiming, and the local Desktop round trip were manually verified.
+
 Objective: replace temporary state with MongoDB Atlas.
 
 Success criteria:

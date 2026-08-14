@@ -2,7 +2,7 @@
 
 ## Status
 
-The local Web, API, and Desktop boundaries are implemented for the first end-to-end slice. Persistence, authentication, deployment, and real processors remain planned.
+The local Web, API, and Desktop boundaries are implemented and verified with MongoDB Atlas persistence. Authentication, deployment, and real processors remain planned.
 
 ## System context
 
@@ -11,7 +11,7 @@ flowchart LR
     U["User on Web / iPhone PWA"] --> W["Next.js Web UI"]
     W --> A["Cloud API in Next.js"]
     D["Tauri Desktop Worker"] --> A
-    A -. "planned" .-> M["MongoDB Atlas"]
+    A --> M["MongoDB Atlas"]
     D --> P["Local Processor"]
     P --> D
     D -. "later" .-> H["Heptabase"]
@@ -33,7 +33,7 @@ flowchart LR
 - Own capture persistence and job lifecycle state.
 - Provide HTTP endpoints used by both Web and Desktop clients.
 
-For the current local slice, the API runs at `http://localhost:3000` and keeps captures in the Next.js server process. It exposes:
+For local development, the API runs at `http://localhost:3000` and uses a server-only MongoDB connection configured through environment variables. It exposes:
 
 - `POST /api/captures` to create a pending capture;
 - `GET /api/captures/{id}` to read its current state;
@@ -42,7 +42,10 @@ For the current local slice, the API runs at `http://localhost:3000` and keeps c
 
 ### MongoDB Atlas
 
-- Persist captures, jobs, and processing results.
+- Persist each capture, its job lifecycle, and its processing result in one `captures` collection.
+- Use an index on `status` and `createdAt` to find the oldest pending capture efficiently.
+- Atomically claim work by filtering for `pending` and changing it to `processing` in one database operation.
+- Enforce the current document contract at the API boundary and in TypeScript. A database-level JSON Schema validator is deferred while the Cloud API remains the only database writer.
 - Remain accessible only from trusted server-side code.
 - Never expose its connection credentials to the browser or Desktop application.
 

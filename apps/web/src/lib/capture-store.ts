@@ -1,64 +1,108 @@
+import type {
+  Filter,
+  FindOneAndUpdateOptions,
+  UpdateFilter,
+} from "mongodb";
+
 import type { Capture } from "./capture.ts";
+import { getMongoClient, getMongoDatabaseName } from "./mongodb.ts";
+
+export type CaptureDocument = Omit<Capture, "id"> & {
+  _id: string;
+};
+
+export type CaptureCollection = {
+  insertOne(document: CaptureDocument): Promise<unknown>;
+  findOne(filter: Filter<CaptureDocument>): Promise<CaptureDocument | null>;
+  findOneAndUpdate(
+    filter: Filter<CaptureDocument>,
+    update: UpdateFilter<CaptureDocument>,
+    options: FindOneAndUpdateOptions,
+  ): Promise<CaptureDocument | null>;
+};
+
+type CaptureCollectionProvider = () => Promise<CaptureCollection>;
+
+let claimIndexPromise: Promise<string> | undefined;
+
+async function getMongoCaptureCollection() {
+  const client = await getMongoClient();
+  const collection = client
+    .db(getMongoDatabaseName())
+    .collection<CaptureDocument>("captures");
+
+  claimIndexPromise ??= collection.createIndex(
+    { status: 1, createdAt: 1 },
+    { name: "claim_pending_capture" },
+  );
+  await claimIndexPromise;
+
+  return collection;
+}
+
+function toCapture(document: CaptureDocument): Capture {
+  const { _id, ...capture } = document;
+  return { id: _id, ...capture };
+}
 
 export class CaptureStore {
-  private readonly captures = new Map<string, Capture>();
+  private readonly getCollection: CaptureCollectionProvider;
 
-  create(content: string): Capture {
-    const capture: Capture = {
-      id: crypto.randomUUID(),
+  constructor(
+    getCollection: CaptureCollectionProvider = getMongoCaptureCollection,
+  ) {
+    this.getCollection = getCollection;
+  }
+
+  async create(content: string): Promise<Capture> {
+    const document: CaptureDocument = {
+      _id: crypto.randomUUID(),
       content,
       status: "pending",
       createdAt: new Date().toISOString(),
     };
 
-    this.captures.set(capture.id, capture);
-    return capture;
+    const collection = await this.getCollection();
+    await collection.insertOne(document);
+    return toCapture(document);
   }
 
-  find(id: string): Capture | undefined {
-    return this.captures.get(id);
+  async find(id: string): Promise<Capture | undefined> {
+    const collection = await this.getCollection();
+    const document = await collection.findOne({ _id: id });
+    return document === null ? undefined : toCapture(document);
   }
 
-  claimNext(): Capture | undefined {
-    const capture = [...this.captures.values()].find(
-      (candidate) => candidate.status === "pending",
+  async claimNext(): Promise<Capture | undefined> {
+    const collection = await this.getCollection();
+    const document = await collection.findOneAndUpdate(
+      { status: "pending" },
+      { $set: { status: "processing" } },
+      {
+        sort: { createdAt: 1, _id: 1 },
+        returnDocument: "after",
+      },
     );
 
-    if (capture === undefined) {
-      return undefined;
-    }
-
-    const claimedCapture: Capture = { ...capture, status: "processing" };
-    this.captures.set(capture.id, claimedCapture);
-    return claimedCapture;
+    return document === null ? undefined : toCapture(document);
   }
 
-  complete(id: string, result: string): Capture | undefined {
-    const capture = this.captures.get(id);
+  async complete(id: string, result: string): Promise<Capture | undefined> {
+    const collection = await this.getCollection();
+    const document = await collection.findOneAndUpdate(
+      { _id: id, status: "processing" },
+      {
+        $set: {
+          status: "completed",
+          result,
+          completedAt: new Date().toISOString(),
+        },
+      },
+      { returnDocument: "after" },
+    );
 
-    if (capture === undefined || capture.status !== "processing") {
-      return undefined;
-    }
-
-    const completedCapture: Capture = {
-      ...capture,
-      status: "completed",
-      result,
-      completedAt: new Date().toISOString(),
-    };
-
-    this.captures.set(id, completedCapture);
-    return completedCapture;
+    return document === null ? undefined : toCapture(document);
   }
 }
 
-const globalCaptureStore = globalThis as typeof globalThis & {
-  captureStore?: CaptureStore;
-};
-
-export const captureStore =
-  globalCaptureStore.captureStore ?? new CaptureStore();
-
-if (process.env.NODE_ENV !== "production") {
-  globalCaptureStore.captureStore = captureStore;
-}
+export const captureStore = new CaptureStore();
