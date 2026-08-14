@@ -101,8 +101,8 @@ function App() {
       </ul>
 
       <p className="temporaryNote">
-        Temporary: the API address is fixed to http://localhost:3000 and the
-        processor only prefixes the content with “Processed:”.
+        The API address and device credential come from the Rust environment.
+        The processor still only prefixes the content with “Processed:”.
       </p>
     </main>
   );

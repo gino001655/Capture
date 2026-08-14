@@ -26,7 +26,7 @@ Install the workspace dependencies:
 pnpm.cmd install --frozen-lockfile
 ```
 
-Copy `apps/web/.env.example` to `apps/web/.env.local`, then provide the Atlas connection URI and development database name. `.env.local` contains secrets and must not be committed.
+Copy `apps/web/.env.example` to `apps/web/.env.local`, then provide the Atlas, Better Auth, Google OAuth, allowed-email, and Desktop-token values. Copy `apps/desktop/src-tauri/.env.example` to `apps/desktop/src-tauri/.env.local` and use the same Desktop token. Both `.env.local` files contain secrets and must not be committed.
 
 Start the Web application:
 

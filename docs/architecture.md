@@ -78,7 +78,8 @@ All triggers should share one check operation and avoid overlapping polls. Detai
 - Browser and Desktop inputs are untrusted and require server-side validation.
 - Only the Cloud API may connect to MongoDB Atlas.
 - The public deployment must be authenticated before it is treated as usable production.
-- The likely direction is a single-user Web login plus a revocable Desktop device token; the specific authentication implementation is not yet selected.
+- The Web uses a stateless Better Auth session created through Google OAuth and authorizes only the configured email address.
+- The Desktop uses a separate bearer token supplied through its Rust environment; rotating the server token revokes the previous device credential.
 - Secrets belong in local or deployment environment configuration, never committed source files.
 
 ## Repository direction

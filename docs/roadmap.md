@@ -66,6 +66,8 @@ Success criteria:
 
 ## 5. Authentication and authorization
 
+Status: Complete. The Web requires an allowed Google account, and the Desktop authenticates with a separate bearer token. The local end-to-end flow has been manually verified.
+
 Objective: protect the single-user Web application and Desktop worker before public deployment.
 
 Success criteria:

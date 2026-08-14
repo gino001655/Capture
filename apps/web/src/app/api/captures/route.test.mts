@@ -4,16 +4,20 @@ import test from "node:test";
 import type { Capture } from "../../../lib/capture.ts";
 import { createCapturePostHandler } from "./route.ts";
 
-const POST = createCapturePostHandler({
-  async create(content): Promise<Capture> {
+const store = {
+  async create(content: string): Promise<Capture> {
     return {
       id: "test-capture-id",
       content,
-      status: "pending",
+      status: "pending" as const,
       createdAt: "2026-08-14T00:00:00.000Z",
     };
   },
-});
+};
+
+const POST = createCapturePostHandler(store, async () => ({
+  status: "authorized",
+}));
 
 function createRequest(body: string) {
   return new Request("http://localhost/api/captures", {
@@ -52,4 +56,17 @@ test("returns 400 for malformed JSON", async () => {
 
   assert.equal(response.status, 400);
   assert.equal(payload.error.code, "INVALID_JSON");
+});
+
+test("returns 401 before creating a capture without a Web session", async () => {
+  const unauthorizedPost = createCapturePostHandler(store, async () => ({
+    status: "unauthorized",
+  }));
+  const response = await unauthorizedPost(
+    createRequest(JSON.stringify({ content: "Private capture" })),
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(payload.error.code, "UNAUTHORIZED");
 });

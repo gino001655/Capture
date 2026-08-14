@@ -1,11 +1,21 @@
 import { validateJobResult } from "../../../../lib/capture.ts";
 import { captureStore } from "../../../../lib/capture-store.ts";
+import {
+  authorizationFailureResponse,
+  authorizeDesktopRequest,
+} from "../../../../lib/authorization.ts";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
 export async function PATCH(request: Request, context: RouteContext) {
+  const authorization = authorizeDesktopRequest(request);
+
+  if (authorization.status !== "authorized") {
+    return authorizationFailureResponse(authorization);
+  }
+
   let requestBody: unknown;
 
   try {
