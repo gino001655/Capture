@@ -88,11 +88,25 @@ Success criteria:
 - The Desktop reaches the deployed API without direct database access.
 - The complete Web-to-Desktop-to-Web path is manually verified.
 
+## 7. Installable capture clients
+
+Status: Implemented and automatically verified. iPhone installation and Windows tray/shortcut behavior still require final manual smoke checks.
+
+Objective: make capture fast enough for daily use without opening a full browser or a heavy foreground Desktop window.
+
+Success criteria:
+
+- The deployed Web app can be added to the iPhone Home Screen and opens in standalone mode.
+- `Ctrl + Alt + C` opens a focused Desktop capture input.
+- `Ctrl + Alt + W` shows or hides Worker Status.
+- Closing Desktop windows leaves one worker in the tray; Quit stops it.
+- The worker can start hidden with Windows and can be installed from a Windows `.exe` installer.
+
 ## Later milestones
 
 - Replace the fake processor with a local Codex processor.
 - Add minimal Heptabase integration.
 - Add minimal Anki integration.
-- Improve capture UX, PWA behavior, tray, and global shortcuts.
+- Add offline capture only if real mobile usage demonstrates that it is needed.
 - Add retry, idempotency, crash recovery, logging, and observability as real failure modes appear.
 - Improve intelligent routing and visual polish after the pipeline is reliable.

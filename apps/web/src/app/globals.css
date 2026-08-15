@@ -113,6 +113,24 @@ h1 {
   color: var(--foreground);
 }
 
+.installPrompt {
+  display: grid;
+  gap: 0.3rem;
+  max-width: 32rem;
+  margin-top: 1rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid rgba(36, 117, 84, 0.18);
+  border-radius: 1rem;
+  background: rgba(36, 117, 84, 0.08);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.installPrompt strong {
+  color: var(--foreground);
+}
+
 .panelHeading,
 .formFooter {
   display: flex;
@@ -244,6 +262,11 @@ button:disabled {
     grid-template-columns: 1fr;
     gap: 1rem;
     align-content: center;
+    min-height: 100svh;
+    padding: max(1rem, env(safe-area-inset-top))
+      max(1rem, env(safe-area-inset-right))
+      max(1rem, env(safe-area-inset-bottom))
+      max(1rem, env(safe-area-inset-left));
   }
 
   .intro {
@@ -252,5 +275,15 @@ button:disabled {
 
   h1 {
     max-width: 12ch;
+  }
+
+  .capturePanel {
+    padding: 1.25rem;
+    border-radius: 1.4rem;
+  }
+
+  textarea {
+    min-height: 10rem;
+    font-size: 1rem;
   }
 }

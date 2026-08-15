@@ -13,9 +13,20 @@
     "windows": [
       {
         "title": "Personal Capture Worker",
-        "width": 720,
-        "height": 520,
-        "resizable": true
+        "width": 560,
+        "height": 540,
+        "resizable": false
+      },
+      {
+        "label": "capture",
+        "title": "Quick Capture",
+        "width": 520,
+        "height": 300,
+        "resizable": false,
+        "visible": false,
+        "alwaysOnTop": true,
+        "center": true,
+        "skipTaskbar": true
       }
     ],
     "security": {
@@ -24,7 +35,7 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

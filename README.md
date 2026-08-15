@@ -6,9 +6,9 @@ This repository is also a software-engineering learning project. Development pro
 
 ## Current status
 
-The first local end-to-end slice is complete. The API supports pending, processing, and completed captures, and the Tauri worker can claim and process one capture at a time.
+The authenticated Web/API is deployed to Vercel and verified with MongoDB Atlas and the Desktop worker. The Web is installable as an iPhone Home Screen app, and the Windows worker now has a tray menu, background polling, quick-capture and status-window shortcuts, optional autostart, and a release installer.
 
-MongoDB-backed persistence is implemented and locally verified against Atlas, including restart persistence and the complete Web-to-Desktop-to-Web path. Authentication is the next milestone before public deployment.
+The fake processor remains in place. Replacing it with the real Codex processor is the next core pipeline milestone.
 
 ## Local development
 
@@ -40,6 +40,19 @@ In a second PowerShell window, start the Desktop worker:
 
 ```powershell
 pnpm.cmd desktop:dev
+```
+
+Development uses `apps/desktop/src-tauri/.env.local`. The installed Desktop app instead lets the user save the Web API URL and Device Token from Worker Status. Those release settings are stored for the current Windows user in the application's AppData configuration directory and must still be treated as a secret.
+
+Desktop shortcuts:
+
+- `Ctrl + Alt + C`: open Quick Capture;
+- `Ctrl + Alt + W`: show or hide Worker Status.
+
+Closing either Desktop window hides it; use the tray menu's Quit action to stop the worker. Build the Windows NSIS installer with:
+
+```powershell
+pnpm.cmd desktop:build
 ```
 
 Run the current automated checks:

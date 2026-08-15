@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { authorizeWebHeaders } from "../lib/authorization";
 import { AccountControls } from "./account-controls";
 import { CaptureForm } from "./capture-form";
+import { InstallPrompt } from "./install-prompt";
 
 export default async function Home() {
   const authorization = await authorizeWebHeaders(await headers());
@@ -26,6 +27,7 @@ export default async function Home() {
           Local Web + API + Desktop
         </div>
         <AccountControls email={authorization.email} />
+        <InstallPrompt />
       </section>
       <CaptureForm />
     </main>

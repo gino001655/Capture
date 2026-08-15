@@ -24,7 +24,8 @@ flowchart LR
 
 - Provide a mobile-oriented capture form.
 - Display captures and processing status.
-- Become installable as an iPhone PWA later.
+- Provide a Web App Manifest and Apple metadata so the deployed site can be installed from Safari onto the iPhone Home Screen.
+- Continue to require a network connection; offline capture and a service worker are not implemented yet.
 
 ### Cloud API
 
@@ -55,6 +56,9 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Poll the Cloud API rather than accepting inbound connections from the server.
 - Run processors that require local machine access.
 - Report results and job state changes through the Cloud API.
+- Keep the worker alive when its windows are hidden, expose controls through the Windows tray, and prevent duplicate worker instances.
+- Open Quick Capture with `Ctrl + Alt + C` and toggle Worker Status with `Ctrl + Alt + W`.
+- Optionally register the installed app to start hidden with Windows.
 
 ### Processor
 
@@ -64,14 +68,14 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 
 ## Desktop polling behavior
 
-The worker should check for work:
+The worker checks for work:
 
 1. when it starts while online;
 2. when network connectivity returns;
 3. every five minutes while running and online;
 4. when the user selects a manual check action.
 
-All triggers should share one check operation and avoid overlapping polls. Details such as queue draining, tray behavior, and sleep recovery remain undecided until the Desktop worker milestone.
+All triggers share one check operation and avoid overlapping polls. The application runs the five-minute schedule in Rust so hiding the WebView window does not stop the worker. Queue draining, durable retries, and explicit sleep-resume handling remain future reliability work.
 
 ## Trust boundaries
 
@@ -79,7 +83,7 @@ All triggers should share one check operation and avoid overlapping polls. Detai
 - Only the Cloud API may connect to MongoDB Atlas.
 - The public deployment must be authenticated before it is treated as usable production.
 - The Web uses a stateless Better Auth session created through Google OAuth and authorizes only the configured email address.
-- The Desktop uses a separate bearer token supplied through its Rust environment; rotating the server token revokes the previous device credential.
+- The Desktop uses a separate bearer token. Development reads it from the Rust `.env.local`; an installed build stores a user-entered token in its per-user AppData configuration. Rotating the server token revokes the previous device credential.
 - Secrets belong in local or deployment environment configuration, never committed source files.
 
 ## Repository direction

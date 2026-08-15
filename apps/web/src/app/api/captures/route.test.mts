@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { Capture } from "../../../lib/capture.ts";
-import { createCapturePostHandler } from "./route.ts";
+import {
+  authorizeCaptureCreateRequest,
+  createCapturePostHandler,
+} from "./route.ts";
 
 const store = {
   async create(content: string): Promise<Capture> {
@@ -19,10 +22,13 @@ const POST = createCapturePostHandler(store, async () => ({
   status: "authorized",
 }));
 
-function createRequest(body: string) {
+function createRequest(body: string, authorization?: string) {
   return new Request("http://localhost/api/captures", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authorization ? { Authorization: authorization } : {}),
+    },
     body,
   });
 }
@@ -69,4 +75,34 @@ test("returns 401 before creating a capture without a Web session", async () => 
 
   assert.equal(response.status, 401);
   assert.equal(payload.error.code, "UNAUTHORIZED");
+});
+
+test("creates a capture for an authorized Desktop request", async () => {
+  const previousToken = process.env.CAPTURE_DEVICE_TOKEN;
+  process.env.CAPTURE_DEVICE_TOKEN =
+    "desktop-capture-token-that-is-at-least-32-characters";
+
+  try {
+    const desktopPost = createCapturePostHandler(
+      store,
+      authorizeCaptureCreateRequest,
+    );
+    const response = await desktopPost(
+      createRequest(
+        JSON.stringify({ content: "Captured from a shortcut" }),
+        "Bearer desktop-capture-token-that-is-at-least-32-characters",
+      ),
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 201);
+    assert.equal(payload.capture.content, "Captured from a shortcut");
+    assert.equal(payload.capture.status, "pending");
+  } finally {
+    if (previousToken === undefined) {
+      delete process.env.CAPTURE_DEVICE_TOKEN;
+    } else {
+      process.env.CAPTURE_DEVICE_TOKEN = previousToken;
+    }
+  }
 });

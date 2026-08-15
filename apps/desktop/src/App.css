@@ -14,10 +14,25 @@ body {
   margin: 0;
 }
 
+button,
+textarea,
+input {
+  font: inherit;
+}
+
+input {
+  min-width: 0;
+}
+
+.workerShell,
+.quickCaptureShell {
+  min-height: 100vh;
+}
+
 .workerShell {
-  width: min(100%, 680px);
+  width: min(100%, 560px);
   margin: 0 auto;
-  padding: 44px;
+  padding: 32px;
 }
 
 .eyebrow,
@@ -36,15 +51,14 @@ h1 {
 }
 
 .intro,
-.schedule,
 .temporaryNote {
   color: #536158;
   line-height: 1.6;
 }
 
 .statusCard {
-  margin: 28px 0 18px;
-  padding: 20px;
+  margin: 24px 0 16px;
+  padding: 18px;
   border: 1px solid #cad7cd;
   border-radius: 14px;
   background: #ffffff;
@@ -52,6 +66,11 @@ h1 {
 
 .statusCard.error {
   border-color: #c97777;
+}
+
+.statusCard.paused {
+  border-color: #d2aa5f;
+  background: #fff9ed;
 }
 
 .statusCard p {
@@ -63,14 +82,18 @@ h1 {
   color: #66746b;
 }
 
+.workerActions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
 button {
-  width: 100%;
   border: 0;
   border-radius: 10px;
-  padding: 13px 18px;
+  padding: 12px 16px;
   color: #ffffff;
   background: #235d3a;
-  font: inherit;
   font-weight: 700;
   cursor: pointer;
 }
@@ -80,13 +103,189 @@ button:disabled {
   opacity: 0.65;
 }
 
-.schedule {
-  padding-left: 22px;
+.secondaryButton {
+  border: 1px solid #b9c9bc;
+  background: #ffffff;
+  color: #23452f;
+}
+
+.settingToggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 18px 0;
+  color: #38483d;
+  font-weight: 600;
+}
+
+.settingToggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #235d3a;
+}
+
+.shortcutList {
+  display: grid;
+  gap: 8px;
+  margin: 20px 0 0;
+}
+
+.shortcutList div {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.shortcutList dt {
+  font-weight: 750;
+}
+
+.shortcutList dd {
+  margin: 0;
+  color: #5c6b61;
 }
 
 .temporaryNote {
-  margin-top: 28px;
-  padding-top: 18px;
+  margin-top: 22px;
+  padding-top: 16px;
   border-top: 1px solid #cad7cd;
-  font-size: 0.86rem;
+  font-size: 0.84rem;
+}
+
+.desktopError {
+  color: #8f2d2d;
+}
+
+.connectionSettings {
+  margin: 16px 0;
+  border: 1px solid #cad7cd;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.connectionSettings summary {
+  padding: 12px 14px;
+  color: #33483a;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.connectionSettings form {
+  display: grid;
+  gap: 12px;
+  padding: 0 14px 14px;
+}
+
+.connectionSettings label {
+  display: grid;
+  gap: 5px;
+  color: #4b5b51;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.connectionSettings input {
+  width: 100%;
+  border: 1px solid #b9c9bc;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #ffffff;
+  color: #17211b;
+}
+
+.connectionFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.connectionFooter small {
+  color: #657269;
+}
+
+.connectionFooter button {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+}
+
+.quickCaptureShell {
+  padding: 24px;
+  background:
+    radial-gradient(circle at top left, rgba(224, 190, 120, 0.22), transparent 22rem),
+    #eef3ef;
+}
+
+.captureHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.captureHeader h1 {
+  font-size: 1.5rem;
+}
+
+.closeButton {
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: 1px solid #c7d2c9;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.75);
+  color: #415148;
+  font-size: 1.45rem;
+  line-height: 1;
+}
+
+.quickCaptureShell form {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.quickCaptureShell textarea {
+  width: 100%;
+  resize: none;
+  border: 1px solid #b9c9bc;
+  border-radius: 12px;
+  outline: none;
+  padding: 13px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #17211b;
+  line-height: 1.5;
+}
+
+.quickCaptureShell textarea:focus {
+  border-color: #247554;
+  box-shadow: 0 0 0 3px rgba(36, 117, 84, 0.13);
+}
+
+.captureFooter {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.captureFooter span {
+  color: #657269;
+  font-size: 0.72rem;
+}
+
+.captureFooter button {
+  flex: 0 0 auto;
+}
+
+.captureMessage {
+  margin: 10px 0 0;
+  font-size: 0.82rem;
+}
+
+.successMessage {
+  color: #247554;
 }
