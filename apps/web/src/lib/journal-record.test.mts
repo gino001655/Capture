@@ -67,8 +67,34 @@ test("rejects an empty Journal record", () => {
   assert.equal(hasJournalContent(emptyJournalAreas()), false);
 });
 
+test("rejects whitespace-only Journal content", () => {
+  const areas = Object.fromEntries(
+    JOURNAL_AREA_KEYS.map((key) => [key, " \n\t"]),
+  );
+  assert.equal(validateJournalCreateRequest(validCreate({ areas })).success, false);
+});
+
+test("rejects Journal areas with extra, missing, or non-string fields", () => {
+  const extra = { ...emptyJournalAreas(), insight: "content", extra: "not allowed" };
+  const missing = { ...emptyJournalAreas() };
+  delete missing.feeling;
+  missing.insight = "content";
+  const nonString = { ...emptyJournalAreas(), insight: "content", feeling: 123 };
+
+  assert.equal(validateJournalCreateRequest(validCreate({ areas: extra })).success, false);
+  assert.equal(validateJournalCreateRequest(validCreate({ areas: missing })).success, false);
+  assert.equal(validateJournalCreateRequest(validCreate({ areas: nonString })).success, false);
+});
+
+test("rejects inherited Journal area fields", () => {
+  const inherited = Object.create({ extra: "not allowed" });
+  Object.assign(inherited, emptyJournalAreas(), { insight: "content" });
+  assert.equal(validateJournalCreateRequest(validCreate({ areas: inherited })).success, false);
+});
+
 test("accepts a valid leap-day and rejects an impossible date", () => {
   assert.equal(validateJournalDate("2024-02-29"), true);
+  assert.equal(validateJournalDate("0099-01-01"), true);
   assert.equal(validateJournalDate("2026-02-30"), false);
   assert.equal(validateJournalDate("2026-2-03"), false);
 });
@@ -76,7 +102,8 @@ test("accepts a valid leap-day and rejects an impossible date", () => {
 test("rejects combined area content over the capture limit", () => {
   const areas = {
     ...emptyJournalAreas(),
-    insight: "a".repeat(MAX_CAPTURE_LENGTH + 1),
+    insight: "a".repeat(MAX_CAPTURE_LENGTH / 2),
+    feeling: "b".repeat(MAX_CAPTURE_LENGTH / 2 + 1),
   };
   assert.equal(validateJournalCreateRequest(validCreate({ areas })).success, false);
 });
