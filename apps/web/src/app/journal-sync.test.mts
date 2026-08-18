@@ -3,7 +3,6 @@ import test from "node:test";
 
 import {
   createJournalSyncController,
-  getJournalAreaFields,
   type JournalSyncControllerOptions,
 } from "./journal-sync.ts";
 import {
@@ -199,26 +198,6 @@ function errorResponse(
     { status },
   );
 }
-
-test("the editor field model exposes six controlled values in canonical symbol and aria-label order", () => {
-  const fields = getJournalAreaFields({
-    unclassified: "zero",
-    event: "one",
-    question: "two",
-    insight: "three",
-    next: "four",
-    feeling: "five",
-  });
-
-  assert.deepEqual(fields, [
-    { key: "unclassified", symbol: "○", ariaLabel: "Unclassified", value: "zero" },
-    { key: "event", symbol: "*", ariaLabel: "Event", value: "one" },
-    { key: "question", symbol: "?", ariaLabel: "Question", value: "two" },
-    { key: "insight", symbol: "!", ariaLabel: "Insight", value: "three" },
-    { key: "next", symbol: "+", ariaLabel: "Next", value: "four" },
-    { key: "feeling", symbol: "~", ariaLabel: "Feeling", value: "five" },
-  ]);
-});
 
 test("an edit is locally durable at the event boundary and waits exactly 1500 ms before POST", async () => {
   const requests: Array<{ url: string; init: RequestInit }> = [];
@@ -960,4 +939,165 @@ test("a locked DELETE preserves delivered Cloud state and opens a fresh local bl
   assert.equal(controller.getState().active.revision, null);
   assert.deepEqual(controller.getState().active.areas, emptyJournalAreas());
   assert.equal(observableStatus(controller)?.issues[0]?.code, "RECORD_LOCKED");
+});
+
+test("storage read denial never crashes or writes unknown storage and still syncs in-memory edits", async () => {
+  let writeAttempts = 0;
+  let requestCount = 0;
+  let notifications = 0;
+  const scheduler = new FakeScheduler();
+  let controller!: ReturnType<typeof createJournalSyncController>;
+
+  assert.doesNotThrow(() => {
+    controller = createJournalSyncController({
+      storage: {
+        getItem() {
+          throw new DOMException("denied", "SecurityError");
+        },
+        setItem() {
+          writeAttempts += 1;
+        },
+      },
+      request: async (url, init) => {
+        requestCount += 1;
+        return acceptedResponse(url, init, 0);
+      },
+      now: () => new Date("2026-08-18T01:00:00.000Z"),
+      idFactory: idFactory(),
+      schedule: scheduler.schedule,
+      cancel: scheduler.cancel,
+    });
+  });
+  controller.subscribe(() => {
+    notifications += 1;
+  });
+
+  controller.editActiveArea("event", "memory and Cloud remain available");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(writeAttempts, 0);
+  assert.equal(requestCount, 1);
+  assert.equal(controller.getState().active.revision, 0);
+  assert.equal(controller.getState().active.areas.event, "memory and Cloud remain available");
+  assert.ok(notifications >= 2);
+  assert.equal(observableStatus(controller)?.durability, "read-denied");
+  assert.equal(observableStatus(controller)?.issues[0]?.code, "STORAGE_READ_FAILED");
+});
+
+test("an initial write denial reports memory-only then a later successful edit write restores durable status", () => {
+  let writeAttempt = 0;
+  let stored: string | null = null;
+  let controller!: ReturnType<typeof createJournalSyncController>;
+
+  assert.doesNotThrow(() => {
+    controller = createJournalSyncController({
+      storage: {
+        getItem() {
+          return null;
+        },
+        setItem(_key, value) {
+          writeAttempt += 1;
+          if (writeAttempt === 1) {
+            throw new DOMException("quota", "QuotaExceededError");
+          }
+          stored = value;
+        },
+      },
+      request: async (url, init) => acceptedResponse(url, init, 0),
+      now: () => new Date("2026-08-18T01:00:00.000Z"),
+      idFactory: idFactory(),
+    });
+  });
+
+  assert.equal(observableStatus(controller)?.durability, "memory-only");
+  assert.equal(observableStatus(controller)?.issues[0]?.code, "STORAGE_WRITE_FAILED");
+
+  controller.editActiveArea("question", "second write succeeds");
+
+  assert.equal(observableStatus(controller)?.durability, "durable");
+  assert.deepEqual(observableStatus(controller)?.issues, []);
+  assert.equal((JSON.parse(stored!) as JournalLocalState).active.areas.question, "second write succeeds");
+});
+
+test("an edit quota failure retains memory state notifies React and continues Cloud sync without false durability", async () => {
+  let failWrites = false;
+  let notifications = 0;
+  let requestCount = 0;
+  const scheduler = new FakeScheduler();
+  const storage = new MemoryStorage();
+  const controller = createJournalSyncController({
+    storage: {
+      getItem: storage.getItem.bind(storage),
+      setItem(key, value) {
+        if (failWrites) {
+          throw new DOMException("quota", "QuotaExceededError");
+        }
+        storage.setItem(key, value);
+      },
+    },
+    request: async (url, init) => {
+      requestCount += 1;
+      return acceptedResponse(url, init, 0);
+    },
+    now: () => new Date("2026-08-18T01:00:00.000Z"),
+    idFactory: idFactory(),
+    schedule: scheduler.schedule,
+    cancel: scheduler.cancel,
+  });
+  controller.subscribe(() => {
+    notifications += 1;
+  });
+  failWrites = true;
+
+  assert.doesNotThrow(() => {
+    controller.editActiveArea("feeling", "retain me in memory");
+  });
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(controller.getState().active.areas.feeling, "retain me in memory");
+  assert.equal(controller.getState().active.revision, 0);
+  assert.equal(requestCount, 1);
+  assert.ok(notifications >= 2);
+  assert.equal(observableStatus(controller)?.durability, "memory-only");
+  assert.equal(observableStatus(controller)?.issues[0]?.code, "STORAGE_WRITE_FAILED");
+});
+
+test("an acknowledgement storage failure keeps the acknowledged revision in memory and reports write failure", async () => {
+  let writeAttempt = 0;
+  let notifications = 0;
+  const scheduler = new FakeScheduler();
+  const controller = createJournalSyncController({
+    storage: {
+      getItem() {
+        return null;
+      },
+      setItem() {
+        writeAttempt += 1;
+        if (writeAttempt === 3) {
+          throw new DOMException("quota", "QuotaExceededError");
+        }
+      },
+    },
+    request: async (url, init) => acceptedResponse(url, init, 0),
+    now: () => new Date("2026-08-18T01:00:00.000Z"),
+    idFactory: idFactory(),
+    schedule: scheduler.schedule,
+    cancel: scheduler.cancel,
+  });
+  controller.subscribe(() => {
+    notifications += 1;
+  });
+
+  controller.editActiveArea("next", "acknowledge this");
+  assert.equal(observableStatus(controller)?.durability, "durable");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(controller.getState().active.revision, 0);
+  assert.equal(controller.getState().active.areas.next, "acknowledge this");
+  assert.ok(notifications >= 2);
+  assert.equal(observableStatus(controller)?.durability, "memory-only");
+  assert.equal(observableStatus(controller)?.issues[0]?.code, "STORAGE_WRITE_FAILED");
 });

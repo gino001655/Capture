@@ -23,42 +23,6 @@ import {
   type LocalJournalDraft,
 } from "./journal-session.ts";
 
-export type JournalAreaField = {
-  key: JournalAreaKey;
-  symbol: string;
-  ariaLabel: string;
-  value: string;
-};
-
-const AREA_SYMBOLS: Record<JournalAreaKey, string> = {
-  unclassified: "○",
-  event: "*",
-  question: "?",
-  insight: "!",
-  next: "+",
-  feeling: "~",
-};
-
-const AREA_ARIA_LABELS: Record<JournalAreaKey, string> = {
-  unclassified: "Unclassified",
-  event: "Event",
-  question: "Question",
-  insight: "Insight",
-  next: "Next",
-  feeling: "Feeling",
-};
-
-export function getJournalAreaFields(
-  areas: LocalJournalDraft["areas"],
-): JournalAreaField[] {
-  return JOURNAL_AREA_KEYS.map((key) => ({
-    key,
-    symbol: AREA_SYMBOLS[key],
-    ariaLabel: AREA_ARIA_LABELS[key],
-    value: areas[key],
-  }));
-}
-
 export type JournalSyncControllerOptions = {
   storage: Pick<Storage, "getItem" | "setItem">;
   request: (url: string, init: RequestInit) => Promise<Response>;
@@ -71,6 +35,7 @@ export type JournalSyncControllerOptions = {
 export type JournalSyncController = {
   getState(): JournalLocalState;
   getStatus(): JournalSyncStatus;
+  getSnapshot(): JournalSyncSnapshot;
   subscribe(listener: () => void): () => void;
   editActiveArea(key: JournalAreaKey, value: string): void;
   finishActiveAndStartNew(): boolean;
@@ -86,7 +51,9 @@ export type JournalSyncIssueCode =
   | "INVALID_JOURNAL_RECORD"
   | "UNAUTHORIZED"
   | "AUTH_NOT_CONFIGURED"
-  | "RECORD_LOCKED";
+  | "RECORD_LOCKED"
+  | "STORAGE_READ_FAILED"
+  | "STORAGE_WRITE_FAILED";
 
 export type JournalSyncIssue = {
   code: JournalSyncIssueCode;
@@ -95,8 +62,13 @@ export type JournalSyncIssue = {
 };
 
 export type JournalSyncStatus = {
-  durability: "durable";
+  durability: "durable" | "memory-only" | "read-denied";
   issues: readonly JournalSyncIssue[];
+};
+
+export type JournalSyncSnapshot = {
+  state: JournalLocalState;
+  status: JournalSyncStatus;
 };
 
 type MutationTarget = {
@@ -294,15 +266,43 @@ export function createJournalSyncController(
   const abortController = new AbortController();
   const listeners = new Set<() => void>();
 
-  let state = readLocalState(
-    options.storage.getItem(JOURNAL_LOCAL_STORAGE_KEY),
-    now(),
-    idFactory,
-  );
+  let storageWritesAllowed = true;
+  let storedState: string | null = null;
+  let status: JournalSyncStatus = { durability: "durable", issues: [] };
+  try {
+    storedState = options.storage.getItem(JOURNAL_LOCAL_STORAGE_KEY);
+  } catch {
+    storageWritesAllowed = false;
+    status = {
+      durability: "read-denied",
+      issues: [
+        {
+          code: "STORAGE_READ_FAILED",
+          message: "Local Journal storage could not be read; this session will not overwrite it.",
+        },
+      ],
+    };
+  }
+
+  let state = readLocalState(storedState, now(), idFactory);
   if (hasJournalContent(state.active.areas)) {
     state = finishActive(state, now(), idFactory);
   }
-  options.storage.setItem(JOURNAL_LOCAL_STORAGE_KEY, JSON.stringify(state));
+  if (storageWritesAllowed) {
+    try {
+      options.storage.setItem(JOURNAL_LOCAL_STORAGE_KEY, JSON.stringify(state));
+    } catch {
+      status = {
+        durability: "memory-only",
+        issues: [
+          {
+            code: "STORAGE_WRITE_FAILED",
+            message: "Journal changes are currently stored in memory and Cloud only.",
+          },
+        ],
+      };
+    }
+  }
 
   let disposed = false;
   let debounceHandle: unknown = null;
@@ -310,17 +310,41 @@ export function createJournalSyncController(
   let activeVersion = 0;
   let draining: Promise<void> | null = null;
   let rerunRequested = false;
-  let status: JournalSyncStatus = { durability: "durable", issues: [] };
   const blockedIds = new Set<string>();
+  let snapshot: JournalSyncSnapshot = { state, status };
 
   function notifyListeners(): void {
+    snapshot = { state, status };
     for (const listener of listeners) listener();
   }
 
   function publish(nextState: JournalLocalState): void {
     if (disposed) return;
     state = nextState;
-    options.storage.setItem(JOURNAL_LOCAL_STORAGE_KEY, JSON.stringify(state));
+    if (storageWritesAllowed) {
+      try {
+        options.storage.setItem(JOURNAL_LOCAL_STORAGE_KEY, JSON.stringify(state));
+        status = {
+          durability: "durable",
+          issues: status.issues.filter(
+            (issue) => issue.code !== "STORAGE_WRITE_FAILED",
+          ),
+        };
+      } catch {
+        status = {
+          durability: "memory-only",
+          issues: [
+            ...status.issues.filter(
+              (issue) => issue.code !== "STORAGE_WRITE_FAILED",
+            ),
+            {
+              code: "STORAGE_WRITE_FAILED",
+              message: "Journal changes are currently stored in memory and Cloud only.",
+            },
+          ],
+        };
+      }
+    }
     notifyListeners();
   }
 
@@ -651,6 +675,9 @@ export function createJournalSyncController(
     },
     getStatus() {
       return status;
+    },
+    getSnapshot() {
+      return snapshot;
     },
     subscribe(listener) {
       listeners.add(listener);

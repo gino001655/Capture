@@ -5,23 +5,16 @@ import {
   useEffect,
   useRef,
   useSyncExternalStore,
-  type ChangeEvent,
 } from "react";
 
-import {
-  emptyJournalAreas,
-  hasJournalContent,
-  type JournalAreaKey,
-} from "../lib/journal-record";
 import { AccountControls } from "./account-controls";
 import { InstallPrompt } from "./install-prompt";
+import { attachJournalBrowserEvents } from "./journal-browser-events";
 import {
   createJournalSyncController,
-  getJournalAreaFields,
   type JournalSyncController,
 } from "./journal-sync";
-
-const EMPTY_AREAS = emptyJournalAreas();
+import { JournalEditorView } from "./journal-view";
 
 export function JournalApp({ accountEmail }: { accountEmail: string }) {
   const controllerRef = useRef<JournalSyncController | null>(null);
@@ -36,26 +29,22 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     controllerRef.current = controller;
     const unsubscribe = controller.subscribe(onStoreChange);
 
-    const handleOnline = () => {
-      void controller.retryPending();
-    };
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "hidden") {
-        controller.markHidden();
-        return;
-      }
-
-      focusNewSheetRef.current = controller.resumeVisible();
-    };
-
-    window.addEventListener("online", handleOnline);
-    document.addEventListener("visibilitychange", handleVisibilityChange);
+    const detachBrowserEvents = attachJournalBrowserEvents({
+      onlineTarget: window,
+      visibilityTarget: document,
+      onOnline: () => {
+        void controller.retryPending();
+      },
+      onHidden: () => controller.markHidden(),
+      onVisible: () => {
+        focusNewSheetRef.current = controller.resumeVisible();
+      },
+    });
     void controller.start();
     onStoreChange();
 
     return () => {
-      window.removeEventListener("online", handleOnline);
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      detachBrowserEvents();
       unsubscribe();
       controller.dispose();
       if (controllerRef.current === controller) controllerRef.current = null;
@@ -63,10 +52,11 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
   }, []);
 
   const getSnapshot = useCallback(
-    () => controllerRef.current?.getState() ?? null,
+    () => controllerRef.current?.getSnapshot() ?? null,
     [],
   );
-  const state = useSyncExternalStore(subscribe, getSnapshot, () => null);
+  const snapshot = useSyncExternalStore(subscribe, getSnapshot, () => null);
+  const state = snapshot?.state;
   const activeId = state?.active.id;
 
   useEffect(() => {
@@ -75,10 +65,6 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     unclassifiedRef.current?.focus();
   }, [activeId]);
 
-  function editArea(key: JournalAreaKey, event: ChangeEvent<HTMLTextAreaElement>) {
-    controllerRef.current?.editActiveArea(key, event.currentTarget.value);
-  }
-
   function startNewRecord() {
     focusNewSheetRef.current = true;
     if (!controllerRef.current?.finishActiveAndStartNew()) {
@@ -86,8 +72,13 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     }
   }
 
-  const areas = state?.active.areas ?? EMPTY_AREAS;
-  const showNewRecord = hasJournalContent(areas);
+  const visibleIssue = snapshot?.status.issues[0];
+  const canFinalize = !snapshot?.status.issues.some(
+    (issue) =>
+      issue.localId === activeId &&
+      (issue.code === "CONTENT_TOO_LONG" ||
+        issue.code === "INVALID_JOURNAL_RECORD"),
+  );
 
   return (
     <main>
@@ -95,24 +86,23 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
         <AccountControls email={accountEmail} />
         <InstallPrompt />
       </header>
-      <section aria-label="Journal editor">
-        {getJournalAreaFields(areas).map((field) => (
-          <div key={field.key}>
-            <span aria-hidden="true">{field.symbol}</span>
-            <textarea
-              ref={field.key === "unclassified" ? unclassifiedRef : undefined}
-              aria-label={field.ariaLabel}
-              value={field.value}
-              onChange={(event) => editArea(field.key, event)}
-            />
-          </div>
-        ))}
-        {showNewRecord ? (
-          <button type="button" aria-label="New record" onClick={startNewRecord}>
-            <span aria-hidden="true">＋</span>
-          </button>
-        ) : null}
-      </section>
+      <JournalEditorView
+        areas={state?.active.areas ?? {
+          unclassified: "",
+          event: "",
+          question: "",
+          insight: "",
+          next: "",
+          feeling: "",
+        }}
+        canFinalize={canFinalize}
+        issueMessage={visibleIssue?.message ?? null}
+        onEdit={(key, value) =>
+          controllerRef.current?.editActiveArea(key, value)
+        }
+        onNewRecord={startNewRecord}
+        unclassifiedRef={unclassifiedRef}
+      />
     </main>
   );
 }
