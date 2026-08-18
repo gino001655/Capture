@@ -146,6 +146,10 @@ function makeController(
   return { controller, scheduler, storage };
 }
 
+async function nextEventLoopTurn(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 test("the editor field model exposes six controlled values in canonical symbol and aria-label order", () => {
   const fields = getJournalAreaFields({
     unclassified: "zero",
@@ -313,7 +317,7 @@ test("5xx, malformed acknowledgements, and network errors retain content until o
 
   controller.editActiveArea("feeling", "still here");
   scheduler.advance(1_500);
-  await controller.retryPending();
+  await nextEventLoopTurn();
   assert.equal(controller.getState().active.revision, null);
   assert.equal(readStoredState(storage).active.areas.feeling, "still here");
 
@@ -445,4 +449,95 @@ test("foreground resumes at 9:59.999 but finishes a non-empty draft at exactly 1
   assert.equal(controller.getState().pending[0]!.editingState, "idle");
   assert.deepEqual(controller.getState().active.areas, emptyJournalAreas());
   assert.deepEqual(readStoredState(storage), controller.getState());
+});
+
+test("a debounced edit that fires during a failing request gets one coalesced rerun with latest content", async () => {
+  let resolveFirst!: (response: Response) => void;
+  const firstResponse = new Promise<Response>((resolve) => {
+    resolveFirst = resolve;
+  });
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (requests.length === 1) return firstResponse;
+      return acceptedResponse(url, init, 0);
+    },
+  });
+
+  controller.editActiveArea("event", "first");
+  scheduler.advance(1_500);
+  controller.editActiveArea("event", "latest");
+  scheduler.advance(1_500);
+  resolveFirst(new Response("unavailable", { status: 503 }));
+  await nextEventLoopTurn();
+
+  assert.equal(requests.length, 2);
+  assert.equal(
+    (JSON.parse(String(requests[1]!.init.body)) as { areas: { event: string } })
+      .areas.event,
+    "latest",
+  );
+  assert.equal(controller.getState().active.revision, 0);
+});
+
+test("an online trigger during a failing request retries once after that request settles", async () => {
+  let rejectFirst!: (error: Error) => void;
+  const firstResponse = new Promise<Response>((_resolve, reject) => {
+    rejectFirst = reject;
+  });
+  let requestCount = 0;
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requestCount += 1;
+      if (requestCount === 1) return firstResponse;
+      return acceptedResponse(url, init, 0);
+    },
+  });
+
+  controller.editActiveArea("question", "retry when online");
+  scheduler.advance(1_500);
+  const onlineRetry = controller.retryPending();
+  rejectFirst(new TypeError("offline"));
+  await onlineRetry;
+
+  assert.equal(requestCount, 2);
+  assert.equal(controller.getState().active.revision, 0);
+});
+
+test("an idempotent POST replay with older areas rebases then PATCHes the latest local content", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  let committedRecord: JournalRecord | null = null;
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (requests.length === 1) {
+        committedRecord = responseRecord(url, init, 0, "active");
+        throw new TypeError("response lost after commit");
+      }
+      if (requests.length === 2) {
+        return Response.json({ record: committedRecord }, { status: 201 });
+      }
+      return acceptedResponse(url, init, 1, "active");
+    },
+  });
+
+  controller.editActiveArea("insight", "server committed this older text");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  controller.editActiveArea("insight", "newer local text");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(requests.length, 3);
+  assert.equal(requests[0]!.init.method, "POST");
+  assert.equal(requests[1]!.init.method, "POST");
+  assert.equal(requests[2]!.init.method, "PATCH");
+  assert.equal(
+    (JSON.parse(String(requests[2]!.init.body)) as { areas: { insight: string } })
+      .areas.insight,
+    "newer local text",
+  );
+  assert.equal(controller.getState().active.revision, 1);
+  assert.equal(controller.getState().active.areas.insight, "newer local text");
 });

@@ -129,14 +129,17 @@ function isAcceptedRecordForTarget(
 ): boolean {
   if (
     record.deviceId !== target.deviceId ||
-    record.journalDate !== target.journalDate ||
-    !hasSameAreas(record.areas, target.areas)
+    record.journalDate !== target.journalDate
   ) {
     return false;
   }
 
   if (kind === "created") {
-    return record.id === target.id && record.editingState === "active";
+    return (
+      record.id === target.id &&
+      record.deliveryState === "undelivered" &&
+      record.editingState === "active"
+    );
   }
 
   if (kind === "updated") {
@@ -144,7 +147,8 @@ function isAcceptedRecordForTarget(
       target.revision !== null &&
       record.id === target.id &&
       record.editingState === target.editingState &&
-      record.revision === target.revision + 1
+      record.revision === target.revision + 1 &&
+      hasSameAreas(record.areas, target.areas)
     );
   }
 
@@ -152,7 +156,8 @@ function isAcceptedRecordForTarget(
     record.id === target.conflictRecordId &&
     record.conflictOf === target.id &&
     record.editingState === target.editingState &&
-    record.revision === 0
+    record.revision === 0 &&
+    hasSameAreas(record.areas, target.areas)
   );
 }
 
@@ -228,6 +233,7 @@ export function createJournalSyncController(
   let activeReady = false;
   let activeVersion = 0;
   let draining: Promise<void> | null = null;
+  let rerunRequested = false;
 
   function publish(nextState: JournalLocalState): void {
     if (disposed) return;
@@ -371,11 +377,19 @@ export function createJournalSyncController(
 
   function drainQueue(): Promise<void> {
     if (disposed) return Promise.resolve();
-    if (draining !== null) return draining;
+    if (draining !== null) {
+      rerunRequested = true;
+      return draining;
+    }
 
-    draining = drainLoop().finally(() => {
-      draining = null;
-    });
+    draining = (async () => {
+      do {
+        rerunRequested = false;
+        await drainLoop();
+      } while (!disposed && rerunRequested);
+    })().finally(() => {
+        draining = null;
+      });
     return draining;
   }
 
