@@ -31,6 +31,8 @@ export type JournalLocalState = {
 
 type IdFactory = () => string;
 
+const MAX_ID_ALLOCATION_ATTEMPTS = 32;
+
 const TAIPEI_DATE_FORMATTER = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Taipei",
   year: "numeric",
@@ -42,17 +44,31 @@ function createBlankDraft(
   deviceId: string,
   now: Date,
   idFactory: IdFactory,
+  occupiedIdentifiers: Set<string>,
 ): LocalJournalDraft {
+  const id = takeDistinctId(idFactory, occupiedIdentifiers);
   return {
-    id: idFactory(),
+    id,
     deviceId,
     journalDate: toTaipeiJournalDate(now),
     areas: emptyJournalAreas(),
     revision: null,
     editingState: "active",
-    conflictRecordId: idFactory(),
+    conflictRecordId: takeDistinctId(idFactory, occupiedIdentifiers),
     backgroundedAt: null,
   };
+}
+
+function takeDistinctId(idFactory: IdFactory, occupiedIdentifiers: Set<string>): string {
+  for (let attempt = 0; attempt < MAX_ID_ALLOCATION_ATTEMPTS; attempt += 1) {
+    const candidate = idFactory();
+    if (isValidUuid(candidate) && !occupiedIdentifiers.has(candidate)) {
+      occupiedIdentifiers.add(candidate);
+      return candidate;
+    }
+  }
+
+  throw new Error("Could not allocate a distinct Journal identifier.");
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -114,7 +130,7 @@ function isLocalJournalDraft(value: unknown): value is LocalJournalDraft {
   );
 }
 
-export function isJournalLocalState(value: unknown): value is JournalLocalState {
+function isJournalLocalStateStructure(value: unknown): value is JournalLocalState {
   if (
     !isPlainObject(value) ||
     !hasExactKeys(value, ["schemaVersion", "deviceId", "active", "pending"]) ||
@@ -134,6 +150,75 @@ export function isJournalLocalState(value: unknown): value is JournalLocalState 
     ids.add(draft.id);
     return true;
   });
+}
+
+function hasDistinctConflictReservations(state: JournalLocalState): boolean {
+  const identifiers = new Set<string>();
+  for (const draft of [state.active, ...state.pending]) {
+    if (identifiers.has(draft.id)) return false;
+    identifiers.add(draft.id);
+  }
+
+  for (const draft of [state.active, ...state.pending]) {
+    if (identifiers.has(draft.conflictRecordId)) return false;
+    identifiers.add(draft.conflictRecordId);
+  }
+
+  return true;
+}
+
+function normalizeConflictReservations(
+  state: JournalLocalState,
+  idFactory: IdFactory,
+): JournalLocalState {
+  const drafts = [state.active, ...state.pending];
+  const draftIds = new Set(drafts.map((draft) => draft.id));
+  const allIdentifiers = new Set<string>();
+  for (const draft of drafts) {
+    allIdentifiers.add(draft.id);
+    allIdentifiers.add(draft.conflictRecordId);
+  }
+
+  const reserved = new Set<string>();
+  let changed = false;
+  const normalizedDrafts = drafts.map((draft) => {
+    if (
+      draftIds.has(draft.conflictRecordId) ||
+      reserved.has(draft.conflictRecordId)
+    ) {
+      changed = true;
+      return {
+        ...draft,
+        conflictRecordId: takeDistinctId(idFactory, allIdentifiers),
+      };
+    }
+
+    reserved.add(draft.conflictRecordId);
+    return draft;
+  });
+
+  if (!changed) return state;
+
+  return {
+    ...state,
+    active: normalizedDrafts[0]!,
+    pending: normalizedDrafts.slice(1),
+  };
+}
+
+export function isJournalLocalState(value: unknown): value is JournalLocalState {
+  return (
+    isJournalLocalStateStructure(value) && hasDistinctConflictReservations(value)
+  );
+}
+
+function collectDraftIdentifiers(state: JournalLocalState): Set<string> {
+  const identifiers = new Set<string>();
+  for (const draft of [state.active, ...state.pending]) {
+    identifiers.add(draft.id);
+    identifiers.add(draft.conflictRecordId);
+  }
+  return identifiers;
 }
 
 export function toTaipeiJournalDate(date: Date): string {
@@ -159,19 +244,30 @@ export function shiftJournalDate(journalDate: string, delta: number): string {
   shifted.setUTCHours(0, 0, 0, 0);
   shifted.setUTCFullYear(year!, month! - 1, day! + delta);
 
-  return [
+  if (!Number.isFinite(shifted.getTime())) {
+    throw new RangeError("Journal date arithmetic must produce a finite date.");
+  }
+
+  const result = [
     String(shifted.getUTCFullYear()).padStart(4, "0"),
     String(shifted.getUTCMonth() + 1).padStart(2, "0"),
     String(shifted.getUTCDate()).padStart(2, "0"),
   ].join("-");
+
+  if (!validateJournalDate(result)) {
+    throw new RangeError("Journal date arithmetic must produce a valid date.");
+  }
+
+  return result;
 }
 
 export function createLocalState(now: Date, idFactory: IdFactory): JournalLocalState {
   const deviceId = idFactory();
+  const occupiedIdentifiers = new Set([deviceId]);
   return {
     schemaVersion: 1,
     deviceId,
-    active: createBlankDraft(deviceId, now, idFactory),
+    active: createBlankDraft(deviceId, now, idFactory, occupiedIdentifiers),
     pending: [],
   };
 }
@@ -185,7 +281,10 @@ export function readLocalState(
 
   try {
     const parsed: unknown = JSON.parse(raw);
-    return isJournalLocalState(parsed) ? parsed : createLocalState(now, idFactory);
+    if (!isJournalLocalStateStructure(parsed)) {
+      return createLocalState(now, idFactory);
+    }
+    return normalizeConflictReservations(parsed, idFactory);
   } catch {
     return createLocalState(now, idFactory);
   }
@@ -222,10 +321,16 @@ export function finishActive(
         },
       ]
     : [...state.pending];
+  const occupiedIdentifiers = collectDraftIdentifiers(state);
 
   return {
     ...state,
-    active: createBlankDraft(state.deviceId, now, idFactory),
+    active: createBlankDraft(
+      state.deviceId,
+      now,
+      idFactory,
+      occupiedIdentifiers,
+    ),
     pending,
   };
 }
@@ -259,14 +364,22 @@ export function applyServerRecord(
   state: JournalLocalState,
   localId: string,
   record: JournalRecord,
+  idFactory: IdFactory,
 ): JournalLocalState {
   if (state.active.id === localId) {
+    const occupiedIdentifiers = collectDraftIdentifiers(state);
+    occupiedIdentifiers.add(record.id);
+    const conflictRecordId =
+      record.id === localId
+        ? state.active.conflictRecordId
+        : takeDistinctId(idFactory, occupiedIdentifiers);
     return {
       ...state,
       active: {
         ...state.active,
         id: record.id,
         revision: record.revision,
+        conflictRecordId,
       },
     };
   }

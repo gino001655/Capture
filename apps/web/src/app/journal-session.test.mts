@@ -7,6 +7,7 @@ import {
   decideForegroundAction,
   editActiveArea,
   finishActive,
+  isJournalLocalState,
   JOURNAL_LOCAL_STORAGE_KEY,
   markBackgrounded,
   readLocalState,
@@ -40,6 +41,29 @@ function fixedIdFactory(start = 0): () => string {
     index += 1;
     return id;
   };
+}
+
+function sequenceIdFactory(ids: readonly string[]): () => string {
+  let index = 0;
+  return () => {
+    const id = ids[index];
+    if (id === undefined) throw new Error("test ID factory exhausted");
+    index += 1;
+    return id;
+  };
+}
+
+function stateWithPending() {
+  const initial = editActiveArea(
+    createLocalState(new Date("2026-08-18T01:00:00Z"), fixedIdFactory()),
+    "event",
+    "walked",
+  );
+  return finishActive(
+    initial,
+    new Date("2026-08-18T01:01:00Z"),
+    fixedIdFactory(3),
+  );
 }
 
 function nonEmptyDraft(backgroundedAt: number | null): LocalJournalDraft {
@@ -85,6 +109,14 @@ test("shifts Taipei Journal dates without UTC date parsing", () => {
   assert.equal(shiftJournalDate("2026-08-18", -1), "2026-08-17");
   assert.equal(shiftJournalDate("2024-02-28", 1), "2024-02-29");
   assert.equal(shiftJournalDate("2024-02-29", 1), "2024-03-01");
+});
+
+test("rejects Journal date arithmetic outside the four-digit date contract", () => {
+  assert.throws(() => shiftJournalDate("9999-12-31", 1), RangeError);
+  assert.throws(
+    () => shiftJournalDate("2026-01-01", Number.MAX_SAFE_INTEGER),
+    RangeError,
+  );
 });
 
 test("resumes at 9:59 but rolls over at 10:00", () => {
@@ -139,6 +171,37 @@ test("finishing an empty draft creates no pending mutation", () => {
   assert.equal(hasJournalContent(finished.active.areas), false);
 });
 
+test("fresh drafts skip identifiers already used by queued work", () => {
+  const state = stateWithPending();
+  const next = finishActive(
+    state,
+    new Date("2026-08-18T01:02:00Z"),
+    sequenceIdFactory([
+      state.pending[0]!.id,
+      state.pending[0]!.conflictRecordId,
+      IDS[5],
+      IDS[6],
+    ]),
+  );
+
+  assert.equal(next.active.id, IDS[5]);
+  assert.equal(next.active.conflictRecordId, IDS[6]);
+  assert.equal(isJournalLocalState(next), true);
+});
+
+test("a broken identifier factory fails after bounded allocation attempts", () => {
+  const state = stateWithPending();
+  assert.throws(
+    () =>
+      finishActive(
+        state,
+        new Date("2026-08-18T01:02:00Z"),
+        () => state.pending[0]!.id,
+      ),
+    /Could not allocate a distinct Journal identifier/,
+  );
+});
+
 test("backgrounding records an epoch timestamp without mutating the draft content", () => {
   const state = editActiveArea(
     createLocalState(new Date("2026-08-18T01:00:00Z"), fixedIdFactory()),
@@ -163,12 +226,37 @@ test("acknowledging a conflict switches the active id to the conflict copy", () 
     conflictOf: initial.active.id,
     revision: 0,
   });
-  const next = applyServerRecord(initial, initial.active.id, conflict);
+  const next = applyServerRecord(
+    initial,
+    initial.active.id,
+    conflict,
+    sequenceIdFactory([conflict.id, initial.active.id, IDS[3]]),
+  );
 
   assert.equal(next.active.id, conflict.id);
   assert.equal(next.active.revision, 0);
   assert.equal(next.active.areas.question, "why?");
   assert.equal(next.active.editingState, "active");
+  assert.equal(next.active.conflictRecordId, IDS[3]);
+  assert.notEqual(next.active.id, next.active.conflictRecordId);
+
+  const laterConflict = serverRecord({
+    id: next.active.conflictRecordId,
+    conflictOf: next.active.id,
+    revision: 0,
+  });
+  const afterLaterConflict = applyServerRecord(
+    next,
+    next.active.id,
+    laterConflict,
+    fixedIdFactory(4),
+  );
+  assert.equal(afterLaterConflict.active.id, laterConflict.id);
+  assert.equal(afterLaterConflict.active.conflictRecordId, IDS[4]);
+  assert.notEqual(
+    afterLaterConflict.active.id,
+    afterLaterConflict.active.conflictRecordId,
+  );
 });
 
 test("acknowledging a pending record removes only that pending mutation", () => {
@@ -186,6 +274,7 @@ test("acknowledging a pending record removes only that pending mutation", () => 
     finished,
     finished.pending[0]!.id,
     serverRecord({ id: finished.pending[0]!.id, editingState: "idle" }),
+    fixedIdFactory(5),
   );
 
   assert.equal(next.pending.length, 0);
@@ -221,6 +310,75 @@ test("invalid, old, and malformed serialized states fall back to clean sessions"
     assert.equal(state.pending.length, 0);
     assert.equal(hasJournalContent(state.active.areas), false);
   }
+});
+
+test("repairs an active draft whose conflict reservation is its own id", () => {
+  const source = stateWithPending();
+  const repaired = readLocalState(
+    JSON.stringify({
+      ...source,
+      active: { ...source.active, conflictRecordId: source.active.id },
+    }),
+    new Date("2026-08-18T01:02:00Z"),
+    fixedIdFactory(5),
+  );
+
+  assert.equal(isJournalLocalState(repaired), true);
+  assert.equal(repaired.deviceId, source.deviceId);
+  assert.equal(repaired.active.id, source.active.id);
+  assert.equal(repaired.active.revision, source.active.revision);
+  assert.deepEqual(repaired.active.areas, source.active.areas);
+  assert.deepEqual(repaired.pending, source.pending);
+  assert.equal(repaired.active.conflictRecordId, IDS[5]);
+});
+
+test("repairs a conflict reservation that collides with another draft id", () => {
+  const source = stateWithPending();
+  const repaired = readLocalState(
+    JSON.stringify({
+      ...source,
+      active: {
+        ...source.active,
+        conflictRecordId: source.pending[0]!.id,
+      },
+    }),
+    new Date("2026-08-18T01:02:00Z"),
+    fixedIdFactory(5),
+  );
+
+  assert.equal(isJournalLocalState(repaired), true);
+  assert.equal(repaired.deviceId, source.deviceId);
+  assert.equal(repaired.active.id, source.active.id);
+  assert.equal(repaired.active.revision, source.active.revision);
+  assert.deepEqual(repaired.active.areas, source.active.areas);
+  assert.deepEqual(repaired.pending, source.pending);
+  assert.equal(repaired.active.conflictRecordId, IDS[5]);
+});
+
+test("repairs a shared pending conflict reservation without losing pending content", () => {
+  const source = stateWithPending();
+  const repaired = readLocalState(
+    JSON.stringify({
+      ...source,
+      pending: [
+        {
+          ...source.pending[0]!,
+          conflictRecordId: source.active.conflictRecordId,
+        },
+      ],
+    }),
+    new Date("2026-08-18T01:02:00Z"),
+    fixedIdFactory(5),
+  );
+
+  assert.equal(isJournalLocalState(repaired), true);
+  assert.equal(repaired.deviceId, source.deviceId);
+  assert.deepEqual(repaired.active, source.active);
+  assert.equal(repaired.pending[0]!.id, source.pending[0]!.id);
+  assert.equal(repaired.pending[0]!.revision, source.pending[0]!.revision);
+  assert.equal(repaired.pending[0]!.editingState, source.pending[0]!.editingState);
+  assert.deepEqual(repaired.pending[0]!.areas, source.pending[0]!.areas);
+  assert.equal(repaired.pending[0]!.conflictRecordId, IDS[5]);
 });
 
 test("the local storage key is a versioned, stable name", () => {
