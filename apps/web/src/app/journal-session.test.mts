@@ -202,6 +202,29 @@ test("a broken identifier factory fails after bounded allocation attempts", () =
   );
 });
 
+test("initial state skips an invalid device identifier and remains valid", () => {
+  const state = createLocalState(
+    new Date("2026-08-18T01:00:00Z"),
+    sequenceIdFactory(["not-a-uuid", IDS[0], IDS[1], IDS[2]]),
+  );
+
+  assert.equal(state.deviceId, IDS[0]);
+  assert.equal(state.active.id, IDS[1]);
+  assert.equal(state.active.conflictRecordId, IDS[2]);
+  assert.equal(isJournalLocalState(state), true);
+});
+
+test("initial state fails deterministically when no valid device id is supplied", () => {
+  assert.throws(
+    () =>
+      createLocalState(
+        new Date("2026-08-18T01:00:00Z"),
+        () => "not-a-uuid",
+      ),
+    /Could not allocate a distinct Journal identifier/,
+  );
+});
+
 test("backgrounding records an epoch timestamp without mutating the draft content", () => {
   const state = editActiveArea(
     createLocalState(new Date("2026-08-18T01:00:00Z"), fixedIdFactory()),

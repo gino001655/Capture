@@ -262,8 +262,8 @@ export function shiftJournalDate(journalDate: string, delta: number): string {
 }
 
 export function createLocalState(now: Date, idFactory: IdFactory): JournalLocalState {
-  const deviceId = idFactory();
-  const occupiedIdentifiers = new Set([deviceId]);
+  const occupiedIdentifiers = new Set<string>();
+  const deviceId = takeDistinctId(idFactory, occupiedIdentifiers);
   return {
     schemaVersion: 1,
     deviceId,
