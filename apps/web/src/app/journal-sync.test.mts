@@ -289,6 +289,68 @@ test("an acknowledged create makes later edits PATCH the current revision with a
   assert.equal(controller.getState().active.conflictRecordId, conflictRecordId);
 });
 
+test("opening an undelivered Cloud record makes its edit PATCH through the existing revision path", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      return acceptedResponse(url, init, 8);
+    },
+  });
+  const record: JournalRecord = {
+    id: "00000000-0000-4000-8000-000000000010",
+    deviceId: controller.getState().deviceId,
+    journalDate: "2026-08-17",
+    areas: { ...emptyJournalAreas(), insight: "existing" },
+    deliveryState: "undelivered",
+    editingState: "idle",
+    revision: 7,
+    createdAt: "2026-08-17T02:00:00.000Z",
+    updatedAt: "2026-08-17T02:00:00.000Z",
+  };
+
+  assert.equal(controller.openRecord(record), true);
+  const conflictRecordId = controller.getState().active.conflictRecordId;
+  controller.editActiveArea("insight", "edited existing");
+  scheduler.advance(1_500);
+  await controller.retryPending();
+
+  assert.equal(requests.length, 1);
+  assert.equal(
+    requests[0]?.url,
+    "/api/journal-records/00000000-0000-4000-8000-000000000010",
+  );
+  assert.equal(requests[0]?.init.method, "PATCH");
+  assert.deepEqual(JSON.parse(String(requests[0]?.init.body)), {
+    deviceId: record.deviceId,
+    journalDate: "2026-08-17",
+    areas: { ...emptyJournalAreas(), insight: "edited existing" },
+    editingState: "active",
+    expectedRevision: 7,
+    conflictRecordId,
+  });
+  assert.equal(controller.getState().active.revision, 8);
+});
+
+test("delivered records cannot enter the editable sync controller", () => {
+  const { controller } = makeController();
+  const before = controller.getState();
+  const delivered: JournalRecord = {
+    id: "00000000-0000-4000-8000-000000000010",
+    deviceId: before.deviceId,
+    journalDate: "2026-08-17",
+    areas: { ...emptyJournalAreas(), feeling: "locked" },
+    deliveryState: "delivered",
+    editingState: "idle",
+    revision: 3,
+    createdAt: "2026-08-17T02:00:00.000Z",
+    updatedAt: "2026-08-17T02:00:00.000Z",
+  };
+
+  assert.equal(controller.openRecord(delivered), false);
+  assert.deepEqual(controller.getState(), before);
+});
+
 test("an edit that becomes ready during a request waits for its acknowledgement before starting PATCH", async () => {
   let resolveFirst!: (response: Response) => void;
   let activeRequests = 0;

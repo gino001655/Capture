@@ -22,6 +22,15 @@ const viewModule = await import("./journal-view.ts").catch(() => ({}));
 const JournalEditorView = (
   viewModule as { JournalEditorView?: (props: ViewProps) => ReactElement }
 ).JournalEditorView;
+const JournalToolbar = (
+  viewModule as { JournalToolbar?: (props: Record<string, unknown>) => ReactElement }
+).JournalToolbar;
+const JournalRecordListView = (
+  viewModule as { JournalRecordListView?: (props: Record<string, unknown>) => ReactElement }
+).JournalRecordListView;
+const JournalRecordEditorView = (
+  viewModule as { JournalRecordEditorView?: (props: Record<string, unknown>) => ReactElement }
+).JournalRecordEditorView;
 
 function render(overrides: Partial<ViewProps> = {}): string {
   assert.equal(typeof JournalEditorView, "function");
@@ -170,4 +179,99 @@ test("the real view keeps every textarea controlled and dispatches its own area 
     edits,
     areaEntries.map(([key]) => [key, `edited ${key}`]),
   );
+});
+
+test("the compact toolbar exposes icon-only Chinese-labelled controls and a native date input", () => {
+  assert.equal(typeof JournalToolbar, "function");
+  if (JournalToolbar === undefined) return;
+  const markup = renderToStaticMarkup(
+    createElement(JournalToolbar, {
+      date: "2026-08-18",
+      listMode: false,
+      onOpenSettings() {},
+      onPrevious() {},
+      onDateChange() {},
+      onNext() {},
+      onToggleList() {},
+    }),
+  );
+
+  for (const label of ["設定", "前一天", "選擇日期", "後一天", "紀錄列表"]) {
+    assert.ok(markup.includes(`aria-label="${label}"`));
+  }
+  assert.ok(markup.includes('type="date"'));
+  assert.ok(markup.includes('value="2026-08-18"'));
+  assert.ok(markup.includes("8.18"));
+  assert.equal(markup.includes(">設定<"), false);
+  assert.equal(markup.includes(">前一天<"), false);
+  assert.equal(markup.includes(">後一天<"), false);
+});
+
+test("the record stream previews only non-empty raw areas without content cards", () => {
+  assert.equal(typeof JournalRecordListView, "function");
+  if (JournalRecordListView === undefined) return;
+  const markup = renderToStaticMarkup(
+    createElement(JournalRecordListView, {
+      records: [{
+        id: "00000000-0000-4000-8000-000000000001",
+        deviceId: "00000000-0000-4000-8000-000000000002",
+        journalDate: "2026-08-18",
+        areas: {
+          ...emptyJournalAreas(),
+          event: "  raw event\nsecond line",
+          question: "   ",
+        },
+        deliveryState: "undelivered",
+        editingState: "idle",
+        revision: 1,
+        createdAt: "2026-08-18T01:00:00.000Z",
+        updatedAt: "2026-08-18T01:00:00.000Z",
+      }],
+      selectedId: null,
+      onSelect() {},
+    }),
+  );
+
+  assert.ok(markup.includes("  raw event\nsecond line"));
+  assert.equal(markup.includes("Question"), false);
+  assert.equal(markup.includes("journalCard"), false);
+});
+
+test("record editing shows six fields when undelivered and only non-empty disabled fields when delivered", () => {
+  assert.equal(typeof JournalRecordEditorView, "function");
+  if (JournalRecordEditorView === undefined) return;
+  const baseRecord = {
+    id: "00000000-0000-4000-8000-000000000001",
+    deviceId: "00000000-0000-4000-8000-000000000002",
+    journalDate: "2026-08-18",
+    areas: { ...emptyJournalAreas(), feeling: "calm" },
+    editingState: "idle" as const,
+    revision: 1,
+    createdAt: "2026-08-18T01:00:00.000Z",
+    updatedAt: "2026-08-18T01:00:00.000Z",
+  };
+  const editable = renderToStaticMarkup(
+    createElement(JournalRecordEditorView, {
+      record: { ...baseRecord, deliveryState: "undelivered" },
+      areas: baseRecord.areas,
+      issueMessages: [],
+      onEdit() {},
+      onBack() {},
+    }),
+  );
+  const locked = renderToStaticMarkup(
+    createElement(JournalRecordEditorView, {
+      record: { ...baseRecord, deliveryState: "delivered" },
+      areas: baseRecord.areas,
+      issueMessages: [],
+      onEdit() {},
+      onBack() {},
+    }),
+  );
+
+  assert.equal((editable.match(/<textarea/g) ?? []).length, 6);
+  assert.equal(editable.includes("disabled"), false);
+  assert.equal((locked.match(/<textarea/g) ?? []).length, 1);
+  assert.ok(locked.includes("disabled"));
+  assert.ok(locked.includes('aria-label="已送出，唯讀"'));
 });

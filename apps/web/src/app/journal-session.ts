@@ -393,6 +393,38 @@ export function applyServerRecord(
   };
 }
 
+export function activateServerRecord(
+  state: JournalLocalState,
+  record: JournalRecord,
+  idFactory: IdFactory,
+): JournalLocalState {
+  if (state.active.id === record.id) return state;
+
+  const occupiedIdentifiers = collectDraftIdentifiers(state);
+  occupiedIdentifiers.add(record.id);
+  const preservedActive = hasJournalContent(state.active.areas)
+    ? [{ ...state.active, areas: { ...state.active.areas } }]
+    : [];
+
+  return {
+    ...state,
+    active: {
+      id: record.id,
+      deviceId: record.deviceId,
+      journalDate: record.journalDate,
+      areas: { ...record.areas },
+      revision: record.revision,
+      editingState: record.editingState,
+      conflictRecordId: takeDistinctId(idFactory, occupiedIdentifiers),
+      backgroundedAt: null,
+    },
+    pending: [
+      ...state.pending.filter((draft) => draft.id !== record.id),
+      ...preservedActive,
+    ],
+  };
+}
+
 function replaceDraft(
   state: JournalLocalState,
   localId: string,

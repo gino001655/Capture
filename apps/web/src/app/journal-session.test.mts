@@ -5,6 +5,7 @@ import * as JournalSession from "./journal-session.ts";
 
 import {
   applyServerRecord,
+  activateServerRecord,
   createLocalState,
   decideForegroundAction,
   editActiveArea,
@@ -282,6 +283,33 @@ test("acknowledging a conflict switches the active id to the conflict copy", () 
     afterLaterConflict.active.id,
     afterLaterConflict.active.conflictRecordId,
   );
+});
+
+test("activating a Cloud record preserves the current draft and adopts the server revision", () => {
+  const initial = editActiveArea(
+    createLocalState(new Date("2026-08-18T01:00:00Z"), fixedIdFactory()),
+    "event",
+    "keep the current sheet",
+  );
+  const record = serverRecord({
+    id: IDS[5],
+    journalDate: "2026-08-17",
+    areas: { ...emptyJournalAreas(), insight: "edit this older record" },
+    editingState: "idle",
+    revision: 4,
+  });
+
+  const next = activateServerRecord(initial, record, fixedIdFactory(6));
+
+  assert.equal(next.pending.length, 1);
+  assert.equal(next.pending[0]?.id, initial.active.id);
+  assert.equal(next.pending[0]?.areas.event, "keep the current sheet");
+  assert.equal(next.active.id, record.id);
+  assert.equal(next.active.journalDate, "2026-08-17");
+  assert.deepEqual(next.active.areas, record.areas);
+  assert.equal(next.active.editingState, "idle");
+  assert.equal(next.active.revision, 4);
+  assert.equal(next.active.conflictRecordId, IDS[6]);
 });
 
 test("acknowledging a pending record removes only that pending mutation", () => {

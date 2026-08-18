@@ -9,6 +9,7 @@ import {
 import { MAX_CAPTURE_LENGTH } from "../lib/capture.ts";
 import {
   applyServerRecord,
+  activateServerRecord,
   AUTOSAVE_DELAY_MS,
   decideForegroundAction,
   editActiveArea,
@@ -38,6 +39,7 @@ export type JournalSyncController = {
   getSnapshot(): JournalSyncSnapshot;
   subscribe(listener: () => void): () => void;
   editActiveArea(key: JournalAreaKey, value: string): void;
+  openRecord(record: JournalRecord): boolean;
   finishActiveAndStartNew(): boolean;
   markHidden(): void;
   resumeVisible(): boolean;
@@ -756,6 +758,21 @@ export function createJournalSyncController(
         activeReady = true;
         void drainQueue();
       }, AUTOSAVE_DELAY_MS);
+    },
+    openRecord(record) {
+      if (
+        disposed ||
+        record.deliveryState !== "undelivered" ||
+        (!hasJournalContent(state.active.areas) && state.active.revision !== null)
+      ) {
+        return false;
+      }
+      clearDebounce();
+      activeVersion += 1;
+      activeReady = false;
+      publish(activateServerRecord(state, record, idFactory));
+      void drainQueue();
+      return true;
     },
     finishActiveAndStartNew,
     markHidden() {
