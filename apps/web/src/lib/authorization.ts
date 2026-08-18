@@ -79,6 +79,16 @@ export function authorizeDesktopRequest(request: Request): AuthorizationResult {
     : { status: "unauthorized" };
 }
 
+export function authorizeClientRequest(
+  request: Request,
+): Promise<AuthorizationResult> {
+  if (request.headers.has("authorization")) {
+    return Promise.resolve(authorizeDesktopRequest(request));
+  }
+
+  return authorizeWebRequest(request);
+}
+
 export function authorizationFailureResponse(result: AuthorizationResult) {
   if (result.status === "misconfigured") {
     return Response.json(

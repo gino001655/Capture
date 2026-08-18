@@ -5,25 +5,16 @@ import {
 } from "../../../lib/capture-store.ts";
 import {
   authorizationFailureResponse,
-  authorizeDesktopRequest,
-  authorizeWebRequest,
+  authorizeClientRequest,
   type AuthorizationResult,
 } from "../../../lib/authorization.ts";
 
 type CaptureCreator = Pick<CaptureStore, "create">;
 type WebAuthorizer = (request: Request) => Promise<AuthorizationResult>;
 
-export function authorizeCaptureCreateRequest(request: Request) {
-  if (request.headers.has("authorization")) {
-    return Promise.resolve(authorizeDesktopRequest(request));
-  }
-
-  return authorizeWebRequest(request);
-}
-
 export function createCapturePostHandler(
   store: CaptureCreator,
-  authorize: WebAuthorizer = authorizeCaptureCreateRequest,
+  authorize: WebAuthorizer = authorizeClientRequest,
 ) {
   return async function POST(request: Request) {
     const authorization = await authorize(request);

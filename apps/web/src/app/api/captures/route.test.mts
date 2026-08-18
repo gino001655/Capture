@@ -2,10 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import type { Capture } from "../../../lib/capture.ts";
-import {
-  authorizeCaptureCreateRequest,
-  createCapturePostHandler,
-} from "./route.ts";
+import { authorizeClientRequest } from "../../../lib/authorization.ts";
+import { createCapturePostHandler } from "./route.ts";
 
 const store = {
   async create(content: string): Promise<Capture> {
@@ -85,7 +83,7 @@ test("creates a capture for an authorized Desktop request", async () => {
   try {
     const desktopPost = createCapturePostHandler(
       store,
-      authorizeCaptureCreateRequest,
+      authorizeClientRequest,
     );
     const response = await desktopPost(
       createRequest(

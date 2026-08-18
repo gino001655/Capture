@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  authorizeClientRequest,
   authorizeDesktopRequest,
   authorizationFailureResponse,
   isAllowedEmail,
@@ -48,6 +49,51 @@ test("authorizes a Desktop request only with the configured token", () => {
       delete process.env.CAPTURE_DEVICE_TOKEN;
     } else {
       process.env.CAPTURE_DEVICE_TOKEN = previousValue;
+    }
+  }
+});
+
+test("selects Desktop bearer authentication when Authorization is present", async () => {
+  const previousToken = process.env.CAPTURE_DEVICE_TOKEN;
+  const token = "a-secure-device-token-that-is-long-enough";
+  process.env.CAPTURE_DEVICE_TOKEN = token;
+
+  try {
+    const result = await authorizeClientRequest(
+      new Request("http://localhost/api/journal-records", {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+    );
+
+    assert.equal(result.status, "authorized");
+  } finally {
+    if (previousToken === undefined) {
+      delete process.env.CAPTURE_DEVICE_TOKEN;
+    } else {
+      process.env.CAPTURE_DEVICE_TOKEN = previousToken;
+    }
+  }
+});
+
+test("selects Web session authentication when Authorization is absent", async () => {
+  const previousToken = process.env.CAPTURE_DEVICE_TOKEN;
+  process.env.CAPTURE_DEVICE_TOKEN =
+    "a-secure-device-token-that-is-long-enough";
+
+  try {
+    const result = await authorizeClientRequest(
+      new Request("http://localhost/api/journal-records"),
+    );
+
+    assert.equal(result.status, "misconfigured");
+    if (result.status === "misconfigured") {
+      assert.ok(result.missing.includes("AUTHORIZED_EMAIL"));
+    }
+  } finally {
+    if (previousToken === undefined) {
+      delete process.env.CAPTURE_DEVICE_TOKEN;
+    } else {
+      process.env.CAPTURE_DEVICE_TOKEN = previousToken;
     }
   }
 });
