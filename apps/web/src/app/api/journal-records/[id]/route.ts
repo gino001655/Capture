@@ -1,5 +1,6 @@
 import {
   isValidUuid,
+  validateJournalDeleteRequest,
   validateJournalUpdateRequest,
 } from "../../../../lib/journal-record.ts";
 import {
@@ -141,9 +142,35 @@ export function createJournalRecordDeleteHandler(
       return invalidJournalRecordResponse("id must be a UUID.");
     }
 
-    const outcome = await store.delete(id);
-    if (outcome.kind === "deleted") {
+    let requestBody: unknown;
+
+    try {
+      requestBody = await request.json();
+    } catch {
+      return invalidJsonResponse();
+    }
+
+    const validation = validateJournalDeleteRequest(requestBody);
+    if (!validation.success) {
+      return invalidJournalRecordResponse(validation.message);
+    }
+
+    const outcome = await store.delete(id, validation.value.expectedRevision);
+    if (outcome.kind === "deleted" || outcome.kind === "missing") {
       return new Response(null, { status: 204 });
+    }
+
+    if (outcome.kind === "conflict") {
+      return Response.json(
+        {
+          error: {
+            code: "REVISION_CONFLICT",
+            message: "The Journal record changed before it could be deleted.",
+          },
+          record: outcome.record,
+        },
+        { status: 409 },
+      );
     }
 
     return Response.json(

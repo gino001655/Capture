@@ -33,7 +33,7 @@ const AREA_ARIA_LABELS: Record<JournalAreaKey, string> = {
 export type JournalEditorViewProps = {
   areas: JournalAreas;
   canFinalize: boolean;
-  issueMessage: string | null;
+  issueMessages: readonly string[];
   onEdit(key: JournalAreaKey, value: string): void;
   onNewRecord(): void;
   unclassifiedRef?: Ref<HTMLTextAreaElement>;
@@ -42,7 +42,7 @@ export type JournalEditorViewProps = {
 export function JournalEditorView({
   areas,
   canFinalize,
-  issueMessage,
+  issueMessages,
   onEdit,
   onNewRecord,
   unclassifiedRef,
@@ -61,14 +61,13 @@ export function JournalEditorView({
       }),
     ),
   );
-  const issue =
-    issueMessage === null
-      ? null
-      : createElement(
-          "div",
-          { role: "alert", "aria-label": issueMessage },
-          createElement("span", { "aria-hidden": true }, "⚠"),
-        );
+  const issues = issueMessages.map((message) =>
+    createElement(
+      "div",
+      { key: message, role: "alert", "aria-label": message },
+      createElement("span", { "aria-hidden": true }, "⚠"),
+    ),
+  );
   const newRecord = hasJournalContent(areas)
     ? createElement(
         "button",
@@ -86,7 +85,7 @@ export function JournalEditorView({
     "section",
     { "aria-label": "Journal editor" },
     ...fields,
-    issue,
+    ...issues,
     newRecord,
   );
 }

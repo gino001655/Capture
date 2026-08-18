@@ -37,6 +37,8 @@ export type JournalUpdateInput = Pick<
   "deviceId" | "journalDate" | "areas" | "editingState"
 > & { expectedRevision: number; conflictRecordId: string };
 
+export type JournalDeleteInput = { expectedRevision: number };
+
 type ValidationFailure = {
   success: false;
   code: "INVALID_JOURNAL";
@@ -49,6 +51,10 @@ export type JournalCreateValidationResult =
 
 export type JournalUpdateValidationResult =
   | { success: true; value: JournalUpdateInput }
+  | ValidationFailure;
+
+export type JournalDeleteValidationResult =
+  | { success: true; value: JournalDeleteInput }
   | ValidationFailure;
 
 const UUID_PATTERN =
@@ -181,4 +187,21 @@ export function validateJournalUpdateRequest(
     return failure("conflictRecordId must be a UUID.");
   }
   return { success: true, value: input as JournalUpdateInput };
+}
+
+export function validateJournalDeleteRequest(
+  input: unknown,
+): JournalDeleteValidationResult {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return failure("Journal delete request must be an object.");
+  }
+  const expectedRevision = (input as Record<string, unknown>).expectedRevision;
+  if (
+    typeof expectedRevision !== "number" ||
+    !Number.isSafeInteger(expectedRevision) ||
+    expectedRevision < 0
+  ) {
+    return failure("expectedRevision must be a non-negative integer.");
+  }
+  return { success: true, value: { expectedRevision } };
 }

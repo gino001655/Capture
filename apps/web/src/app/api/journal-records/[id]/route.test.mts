@@ -53,6 +53,14 @@ function request(body: string) {
   });
 }
 
+function deleteRequest(body: string) {
+  return new Request(`http://localhost/api/journal-records/${IDS.record}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body,
+  });
+}
+
 function context(id = IDS.record) {
   return { params: Promise.resolve({ id }) };
 }
@@ -231,7 +239,7 @@ type DeleteHandler = (
 ) => Promise<Response>;
 
 function createDeleteHandler(
-  store: { delete(id: string): Promise<unknown> },
+  store: { delete(id: string, expectedRevision: number): Promise<unknown> },
   authorize = authorized,
 ): DeleteHandler {
   const factory = (
@@ -261,16 +269,13 @@ test("rejects an unauthorized DELETE before awaiting params or accessing the sto
     },
   } as unknown as Promise<{ id: string }>;
 
-  const response = await DELETE(
-    new Request(`http://localhost/api/journal-records/${IDS.record}`, {
-      method: "DELETE",
-    }),
-    { params },
-  );
+  const input = deleteRequest("{not-json");
+  const response = await DELETE(input, { params });
   const payload = await response.json();
 
   assert.equal(response.status, 401);
   assert.equal(payload.error.code, "UNAUTHORIZED");
+  assert.equal(input.bodyUsed, false);
   assert.equal(paramsAwaited, false);
 });
 
@@ -293,19 +298,51 @@ test("rejects an invalid DELETE route id before accessing the store", async () =
   assert.equal(payload.error.code, "INVALID_JOURNAL_RECORD");
 });
 
-test("maps deleted and already-missing store outcomes to idempotent 204", async () => {
-  for (const alreadyMissing of [false, true]) {
+test("returns INVALID_JSON for malformed DELETE JSON without accessing the store", async () => {
+  const DELETE = createDeleteHandler({
+    async delete() {
+      assert.fail("malformed JSON must not reach the store");
+    },
+  });
+
+  const response = await DELETE(deleteRequest("{not-json"), context());
+  const payload = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(payload.error.code, "INVALID_JSON");
+});
+
+test("returns INVALID_JOURNAL_RECORD for an invalid DELETE revision", async () => {
+  for (const body of [{}, { expectedRevision: -1 }, { expectedRevision: 1.5 }]) {
     const DELETE = createDeleteHandler({
-      async delete(id) {
-        assert.equal(id, IDS.record);
-        return { kind: "deleted", alreadyMissing };
+      async delete() {
+        assert.fail("invalid revision must not reach the store");
       },
     });
 
     const response = await DELETE(
-      new Request(`http://localhost/api/journal-records/${IDS.record}`, {
-        method: "DELETE",
-      }),
+      deleteRequest(JSON.stringify(body)),
+      context(),
+    );
+    const payload = await response.json();
+
+    assert.equal(response.status, 400);
+    assert.equal(payload.error.code, "INVALID_JOURNAL_RECORD");
+  }
+});
+
+test("maps deleted and already-missing store outcomes to idempotent 204", async () => {
+  for (const kind of ["deleted", "missing"] as const) {
+    const DELETE = createDeleteHandler({
+      async delete(id, expectedRevision) {
+        assert.equal(id, IDS.record);
+        assert.equal(expectedRevision, 3);
+        return { kind };
+      },
+    });
+
+    const response = await DELETE(
+      deleteRequest(JSON.stringify({ expectedRevision: 3 })),
       context(),
     );
 
@@ -317,16 +354,15 @@ test("maps deleted and already-missing store outcomes to idempotent 204", async 
 test("maps a delivered DELETE outcome to RECORD_LOCKED without claiming deletion", async () => {
   const lockedRecord = record({ deliveryState: "delivered" });
   const DELETE = createDeleteHandler({
-    async delete(id) {
+    async delete(id, expectedRevision) {
       assert.equal(id, IDS.record);
+      assert.equal(expectedRevision, 0);
       return { kind: "locked", record: lockedRecord };
     },
   });
 
   const response = await DELETE(
-    new Request(`http://localhost/api/journal-records/${IDS.record}`, {
-      method: "DELETE",
-    }),
+    deleteRequest(JSON.stringify({ expectedRevision: 0 })),
     context(),
   );
   const payload = await response.json();
@@ -334,4 +370,28 @@ test("maps a delivered DELETE outcome to RECORD_LOCKED without claiming deletion
   assert.equal(response.status, 409);
   assert.equal(payload.error.code, "RECORD_LOCKED");
   assert.deepEqual(payload.record, lockedRecord);
+});
+
+test("maps a stale DELETE to REVISION_CONFLICT with the newer current record", async () => {
+  const current = record({
+    revision: 7,
+    areas: { ...emptyJournalAreas(), event: "newer server text" },
+  });
+  const DELETE = createDeleteHandler({
+    async delete(id, expectedRevision) {
+      assert.equal(id, IDS.record);
+      assert.equal(expectedRevision, 0);
+      return { kind: "conflict", record: current };
+    },
+  });
+
+  const response = await DELETE(
+    deleteRequest(JSON.stringify({ expectedRevision: 0 })),
+    context(),
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.equal(payload.error.code, "REVISION_CONFLICT");
+  assert.deepEqual(payload.record, current);
 });

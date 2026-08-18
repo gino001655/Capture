@@ -321,22 +321,26 @@ test("refuses to edit a delivered record", async () => {
 async function deleteFromStore(
   store: JournalStore,
   id: string,
+  expectedRevision: number,
 ): Promise<{ kind: string; record?: unknown }> {
   const deleteRecord = (
     store as unknown as {
-      delete?: (id: string) => Promise<{ kind: string; record?: unknown }>;
+      delete?: (
+        id: string,
+        expectedRevision: number,
+      ) => Promise<{ kind: string; record?: unknown }>;
     }
   ).delete;
   assert.equal(typeof deleteRecord, "function");
   if (deleteRecord === undefined) return { kind: "missing-method" };
-  return deleteRecord.call(store, id);
+  return deleteRecord.call(store, id, expectedRevision);
 }
 
 test("deletes an undelivered Journal record", async () => {
   const { store, documents } = createHarness();
   const record = await store.create(createInput(IDS.older));
 
-  const outcome = await deleteFromStore(store, record.id);
+  const outcome = await deleteFromStore(store, record.id, 0);
 
   assert.deepEqual(outcome, { kind: "deleted" });
   assert.equal(documents.has(record.id), false);
@@ -345,9 +349,9 @@ test("deletes an undelivered Journal record", async () => {
 test("deleting an already-missing Journal record is idempotently successful", async () => {
   const { store } = createHarness();
 
-  const outcome = await deleteFromStore(store, IDS.older);
+  const outcome = await deleteFromStore(store, IDS.older, 0);
 
-  assert.deepEqual(outcome, { kind: "deleted" });
+  assert.deepEqual(outcome, { kind: "missing" });
 });
 
 test("refuses to delete a delivered Journal record and returns the locked record", async () => {
@@ -355,10 +359,34 @@ test("refuses to delete a delivered Journal record and returns the locked record
   const record = await store.create(createInput(IDS.older));
   setDeliveryState(record.id, "delivered");
 
-  const outcome = await deleteFromStore(store, record.id);
+  const outcome = await deleteFromStore(store, record.id, 0);
 
   assert.equal(outcome.kind, "locked");
   assert.equal((outcome.record as { id: string }).id, record.id);
   assert.equal(documents.has(record.id), true);
   assert.equal(documents.get(record.id)?.deliveryState, "delivered");
+});
+
+test("a stale DELETE returns the newer undelivered record without removing it", async () => {
+  const { store, documents } = createHarness();
+  const original = await store.create(createInput(IDS.older));
+  const update = await store.update(
+    original.id,
+    updateInput({
+      expectedRevision: 0,
+      areas: areasWith("event", "newer server text"),
+    }),
+  );
+  assert.equal(update.kind, "updated");
+
+  const outcome = await deleteFromStore(store, original.id, 0);
+
+  assert.equal(outcome.kind, "conflict");
+  assert.equal((outcome.record as JournalDocument).revision, 1);
+  assert.equal(
+    (outcome.record as JournalDocument).areas.event,
+    "newer server text",
+  );
+  assert.equal(documents.get(original.id)?.revision, 1);
+  assert.equal(documents.get(original.id)?.areas.event, "newer server text");
 });

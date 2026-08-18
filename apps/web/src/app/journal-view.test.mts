@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createElement, type ComponentType } from "react";
+import {
+  createElement,
+  isValidElement,
+  type ReactElement,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { emptyJournalAreas, type JournalAreas } from "../lib/journal-record.ts";
@@ -9,14 +13,14 @@ import { emptyJournalAreas, type JournalAreas } from "../lib/journal-record.ts";
 type ViewProps = {
   areas: JournalAreas;
   canFinalize: boolean;
-  issueMessage: string | null;
+  issueMessages: readonly string[];
   onEdit(key: string, value: string): void;
   onNewRecord(): void;
 };
 
 const viewModule = await import("./journal-view.ts").catch(() => ({}));
 const JournalEditorView = (
-  viewModule as { JournalEditorView?: ComponentType<ViewProps> }
+  viewModule as { JournalEditorView?: (props: ViewProps) => ReactElement }
 ).JournalEditorView;
 
 function render(overrides: Partial<ViewProps> = {}): string {
@@ -27,7 +31,7 @@ function render(overrides: Partial<ViewProps> = {}): string {
     createElement(JournalEditorView, {
       areas: emptyJournalAreas(),
       canFinalize: true,
-      issueMessage: null,
+      issueMessages: [],
       onEdit() {},
       onNewRecord() {},
       ...overrides,
@@ -93,7 +97,7 @@ test("a recoverable issue renders a compact accessible alert while text remains 
   const markup = render({
     areas: { ...emptyJournalAreas(), feeling: "copyable text" },
     canFinalize: false,
-    issueMessage: "Journal changes are currently stored in memory only.",
+    issueMessages: ["Journal changes are currently stored in memory only."],
   });
 
   assert.match(
@@ -104,5 +108,66 @@ test("a recoverable issue renders a compact accessible alert while text remains 
   assert.equal(
     markup.includes(">Journal changes are currently stored in memory only.<"),
     false,
+  );
+});
+
+test("all distinct actionable issues are rendered as accessible compact alerts", () => {
+  const markup = render({
+    issueMessages: [
+      "Journal content is too long.",
+      "Journal changes are stored in memory only.",
+    ],
+  });
+
+  assert.equal((markup.match(/role="alert"/g) ?? []).length, 2);
+  assert.ok(markup.includes('aria-label="Journal content is too long."'));
+  assert.ok(
+    markup.includes(
+      'aria-label="Journal changes are stored in memory only."',
+    ),
+  );
+});
+
+test("the real view keeps every textarea controlled and dispatches its own area value", () => {
+  assert.equal(typeof JournalEditorView, "function");
+  if (JournalEditorView === undefined) return;
+  const edits: Array<[string, string]> = [];
+  const areaEntries = [
+    ["unclassified", "zero"],
+    ["event", "one"],
+    ["question", "two"],
+    ["insight", "three"],
+    ["next", "four"],
+    ["feeling", "five"],
+  ] as const;
+  const tree = JournalEditorView({
+    areas: Object.fromEntries(areaEntries) as JournalAreas,
+    canFinalize: true,
+    issueMessages: [],
+    onEdit(key, value) {
+      edits.push([key, value]);
+    },
+    onNewRecord() {},
+  });
+  const fieldElements = (tree.props as { children: unknown[] }).children.slice(0, 6);
+
+  for (const [index, [key, value]] of areaEntries.entries()) {
+    const field = fieldElements[index];
+    assert.ok(isValidElement(field));
+    const children = (field.props as { children: unknown[] }).children;
+    const textarea = children[1];
+    assert.ok(isValidElement(textarea));
+    const props = textarea.props as Record<string, unknown>;
+    assert.equal(props.value, value);
+    assert.equal(Object.hasOwn(props, "defaultValue"), false);
+    assert.equal(typeof props.onChange, "function");
+    (props.onChange as (event: { currentTarget: { value: string } }) => void)({
+      currentTarget: { value: `edited ${key}` },
+    });
+  }
+
+  assert.deepEqual(
+    edits,
+    areaEntries.map(([key]) => [key, `edited ${key}`]),
   );
 });

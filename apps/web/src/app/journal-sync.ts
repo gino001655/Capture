@@ -51,6 +51,7 @@ export type JournalSyncIssueCode =
   | "INVALID_JOURNAL_RECORD"
   | "UNAUTHORIZED"
   | "AUTH_NOT_CONFIGURED"
+  | "DELETE_CONFLICT"
   | "RECORD_LOCKED"
   | "STORAGE_READ_FAILED"
   | "STORAGE_WRITE_FAILED";
@@ -84,6 +85,7 @@ type MutationOutcome =
   | { kind: "auth"; code: "UNAUTHORIZED" | "AUTH_NOT_CONFIGURED" }
   | { kind: "not-found" }
   | { kind: "conflict-id-collision" }
+  | { kind: "delete-conflict"; current: JournalRecord }
   | { kind: "record-locked" }
   | { kind: "transient" }
   | { kind: "malformed" };
@@ -160,6 +162,7 @@ function isAcceptedRecordForTarget(
     return (
       target.revision !== null &&
       record.id === target.id &&
+      record.deliveryState === "undelivered" &&
       record.editingState === target.editingState &&
       record.revision === target.revision + 1 &&
       hasSameAreas(record.areas, target.areas)
@@ -169,9 +172,23 @@ function isAcceptedRecordForTarget(
   return (
     record.id === target.conflictRecordId &&
     record.conflictOf === target.id &&
+    record.deliveryState === "undelivered" &&
     record.editingState === target.editingState &&
     record.revision === 0 &&
     hasSameAreas(record.areas, target.areas)
+  );
+}
+
+function isAcceptedConflictCurrent(
+  current: JournalRecord,
+  target: LocalJournalDraft,
+): boolean {
+  return (
+    target.revision !== null &&
+    current.id === target.id &&
+    current.journalDate === target.journalDate &&
+    current.deliveryState === "undelivered" &&
+    current.revision > target.revision
   );
 }
 
@@ -218,6 +235,20 @@ async function readMutationOutcome(
     if (response.status === 409 && code === "CONFLICT_ID_COLLISION") {
       return { kind: "conflict-id-collision" };
     }
+    if (
+      target.operation === "delete" &&
+      response.status === 409 &&
+      code === "REVISION_CONFLICT" &&
+      isPlainObject(payload) &&
+      isJournalRecord(payload.record) &&
+      payload.record.id === draft.id &&
+      payload.record.journalDate === draft.journalDate &&
+      payload.record.deliveryState === "undelivered" &&
+      draft.revision !== null &&
+      payload.record.revision > draft.revision
+    ) {
+      return { kind: "delete-conflict", current: payload.record };
+    }
     if (response.status === 409 && code === "RECORD_LOCKED") {
       return { kind: "record-locked" };
     }
@@ -245,6 +276,7 @@ async function readMutationOutcome(
   if (
     payload.kind === "conflict" &&
     isJournalRecord(payload.current) &&
+    isAcceptedConflictCurrent(payload.current, draft) &&
     isAcceptedRecordForTarget(payload.record, draft, "conflict")
   ) {
     return { kind: "acknowledged", record: payload.record };
@@ -359,7 +391,7 @@ export function createJournalSyncController(
 
   function clearRecordIssues(localId: string): void {
     const nextIssues = status.issues.filter(
-      (issue) => issue.localId !== localId || issue.code === "RECORD_LOCKED",
+      (issue) => issue.localId !== localId,
     );
     if (nextIssues.length === status.issues.length) return;
     status = { ...status, issues: nextIssues };
@@ -432,7 +464,7 @@ export function createJournalSyncController(
             expectedRevision: draft.revision,
             conflictRecordId: draft.conflictRecordId,
           }
-        : undefined;
+        : { expectedRevision: draft.revision };
 
     try {
       const response = await options.request(url, {
@@ -613,17 +645,34 @@ export function createJournalSyncController(
         continue;
       }
 
+      if (outcome.kind === "delete-conflict") {
+        blockedIds.add(target.draft.id);
+        setIssue({
+          code: "DELETE_CONFLICT",
+          localId: target.draft.id,
+          message: "The Cloud record changed before this clear could be saved.",
+        });
+        continue;
+      }
+
       if (outcome.kind === "record-locked") {
+        const pendingIndex = state.pending.findIndex(
+          (draft) => draft.id === target.draft.id,
+        );
         const recoveredState = forkLockedDraft(
           state,
           target.draft.id,
           idFactory,
         );
+        const replacementId =
+          state.active.id === target.draft.id
+            ? recoveredState.active.id
+            : recoveredState.pending[pendingIndex]?.id ?? target.draft.id;
         blockedIds.delete(target.draft.id);
         publish(recoveredState);
         setIssue({
           code: "RECORD_LOCKED",
-          localId: target.draft.id,
+          localId: replacementId,
           message: "The delivered Cloud record is locked; the local edit was preserved as a new record.",
         });
         continue;

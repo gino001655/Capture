@@ -734,7 +734,7 @@ test("CONFLICT_ID_COLLISION rotates only the reservation then retries PATCH once
   assert.equal(controller.getState().active.revision, 1);
 });
 
-test("RECORD_LOCKED forks the edit to fresh undelivered identity and POSTs without modifying the delivered id", async () => {
+test("RECORD_LOCKED clears after the forked replacement is acknowledged and exposes later active validation", async () => {
   const requests: Array<{ url: string; init: RequestInit }> = [];
   const { controller, scheduler } = makeController({
     request: async (url, init) => {
@@ -767,7 +767,64 @@ test("RECORD_LOCKED forks the edit to fresh undelivered identity and POSTs witho
   assert.equal(replacementBody.areas.insight, "preserve as new record");
   assert.equal(controller.getState().active.id, replacementBody.id);
   assert.equal(controller.getState().active.revision, 0);
-  assert.equal(observableStatus(controller)?.issues[0]?.code, "RECORD_LOCKED");
+  assert.equal(
+    observableStatus(controller)?.issues.some(
+      (issue) => issue.code === "RECORD_LOCKED",
+    ),
+    false,
+  );
+
+  controller.editActiveArea("insight", "x".repeat(5_001));
+  assert.deepEqual(
+    observableStatus(controller)?.issues.map((issue) => issue.code),
+    ["CONTENT_TOO_LONG"],
+  );
+});
+
+test("a replacement acknowledgement clears its lock notice without masking a storage failure", async () => {
+  let failWrites = false;
+  let requestCount = 0;
+  const scheduler = new FakeScheduler();
+  const storage = new MemoryStorage();
+  const controller = createJournalSyncController({
+    storage: {
+      getItem: storage.getItem.bind(storage),
+      setItem(key, value) {
+        if (failWrites) throw new DOMException("quota", "QuotaExceededError");
+        storage.setItem(key, value);
+      },
+    },
+    request: async (url, init) => {
+      requestCount += 1;
+      if (requestCount === 1) return acceptedResponse(url, init, 0);
+      if (requestCount === 2) {
+        failWrites = true;
+        return errorResponse(409, "RECORD_LOCKED", {
+          ...responseRecord(url, init, 1),
+          deliveryState: "delivered",
+        });
+      }
+      return acceptedResponse(url, init, 0);
+    },
+    now: () => new Date("2026-08-18T01:00:00.000Z"),
+    idFactory: idFactory(),
+    schedule: scheduler.schedule,
+    cancel: scheduler.cancel,
+  });
+
+  controller.editActiveArea("question", "initial");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  controller.editActiveArea("question", "fork after delivery");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(controller.getState().active.revision, 0);
+  assert.equal(observableStatus(controller)?.durability, "memory-only");
+  assert.deepEqual(
+    observableStatus(controller)?.issues.map((issue) => issue.code),
+    ["STORAGE_WRITE_FAILED"],
+  );
 });
 
 test("an accepted conflict applies the conflict id and rotates its next reservation", async () => {
@@ -807,6 +864,145 @@ test("an accepted conflict applies the conflict id and rotates its next reservat
   assert.equal(controller.getState().active.areas.insight, "stale local edit");
   assert.notEqual(controller.getState().active.conflictRecordId, conflictId);
   assert.notEqual(controller.getState().active.conflictRecordId, sourceId);
+});
+
+test("a delivered updated acknowledgement cannot remove pending local work", async () => {
+  let patchAttempt = 0;
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      if (init.method === "POST") return acceptedResponse(url, init, 0);
+      patchAttempt += 1;
+      const updated = responseRecord(url, init, 1, "idle");
+      return Response.json({
+        kind: "updated",
+        record:
+          patchAttempt === 1
+            ? { ...updated, deliveryState: "delivered" }
+            : updated,
+      });
+    },
+  });
+
+  controller.editActiveArea("event", "keep queued until valid acknowledgement");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  const pendingId = controller.getState().active.id;
+  assert.equal(controller.finishActiveAndStartNew(), true);
+  await nextEventLoopTurn();
+
+  assert.equal(patchAttempt, 1);
+  assert.equal(controller.getState().pending.length, 1);
+  assert.equal(controller.getState().pending[0]!.id, pendingId);
+  assert.equal(controller.getState().pending[0]!.revision, 0);
+
+  await controller.retryPending();
+  assert.equal(patchAttempt, 2);
+  assert.equal(controller.getState().pending.length, 0);
+});
+
+test("a delivered conflict copy cannot replace the active local draft", async () => {
+  let patchAttempt = 0;
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      if (init.method === "POST") return acceptedResponse(url, init, 0);
+      patchAttempt += 1;
+      const body = JSON.parse(String(init.body)) as { conflictRecordId: string };
+      const sourceId = decodeURIComponent(url.split("/").at(-1)!);
+      const conflict = {
+        ...responseRecord(url, init, 0),
+        id: body.conflictRecordId,
+        conflictOf: sourceId,
+        deliveryState: patchAttempt === 1 ? "delivered" as const : "undelivered" as const,
+      };
+      const current = {
+        ...responseRecord(url, init, 1),
+        areas: { ...emptyJournalAreas(), insight: "newer server text" },
+      };
+      return Response.json({ kind: "conflict", record: conflict, current });
+    },
+  });
+
+  controller.editActiveArea("insight", "initial");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  const sourceId = controller.getState().active.id;
+  controller.editActiveArea("insight", "stale local edit");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(patchAttempt, 1);
+  assert.equal(controller.getState().active.id, sourceId);
+  assert.equal(controller.getState().active.revision, 0);
+  assert.equal(controller.getState().active.areas.insight, "stale local edit");
+
+  await controller.retryPending();
+  assert.equal(patchAttempt, 2);
+  assert.notEqual(controller.getState().active.id, sourceId);
+  assert.equal(controller.getState().active.areas.insight, "stale local edit");
+});
+
+test("conflict current must be the newer undelivered source while allowing concurrent device and area changes", async () => {
+  let patchAttempt = 0;
+  const unrelatedId = idFactory(80)();
+  const concurrentDeviceId = idFactory(81)();
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      if (init.method === "POST") return acceptedResponse(url, init, 0);
+      const attempt = patchAttempt;
+      patchAttempt += 1;
+      const body = JSON.parse(String(init.body)) as { conflictRecordId: string };
+      const sourceId = decodeURIComponent(url.split("/").at(-1)!);
+      const conflict = {
+        ...responseRecord(url, init, 0),
+        id: body.conflictRecordId,
+        conflictOf: sourceId,
+      };
+      const validCurrent = {
+        ...responseRecord(url, init, 1),
+        deviceId: concurrentDeviceId,
+        areas: { ...emptyJournalAreas(), question: "concurrent server text" },
+      };
+      const currentVariants: unknown[] = [
+        {},
+        { ...validCurrent, id: unrelatedId },
+        { ...validCurrent, journalDate: "2026-08-17" },
+        { ...validCurrent, deliveryState: "delivered" },
+        { ...validCurrent, revision: 0 },
+        validCurrent,
+      ];
+      return Response.json({
+        kind: "conflict",
+        record: conflict,
+        current: currentVariants[attempt],
+      });
+    },
+  });
+
+  controller.editActiveArea("question", "initial");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  const sourceId = controller.getState().active.id;
+  controller.editActiveArea("question", "preserve stale local text");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  for (let expectedAttempt = 1; expectedAttempt <= 5; expectedAttempt += 1) {
+    assert.equal(patchAttempt, expectedAttempt);
+    assert.equal(controller.getState().active.id, sourceId);
+    assert.equal(controller.getState().active.revision, 0);
+    assert.equal(
+      controller.getState().active.areas.question,
+      "preserve stale local text",
+    );
+    await controller.retryPending();
+  }
+
+  assert.equal(patchAttempt, 6);
+  assert.notEqual(controller.getState().active.id, sourceId);
+  assert.equal(
+    controller.getState().active.areas.question,
+    "preserve stale local text",
+  );
 });
 
 test("mismatched PATCH ids revisions and areas retain local state until a later valid acknowledgement", async () => {
@@ -871,6 +1067,9 @@ test("clearing an acknowledged active draft DELETEs Cloud then opens a fresh bla
 
   assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "DELETE"]);
   assert.equal(requests[1]!.url, `/api/journal-records/${deletedId}`);
+  assert.deepEqual(JSON.parse(String(requests[1]!.init.body)), {
+    expectedRevision: 0,
+  });
   assert.notEqual(controller.getState().active.id, deletedId);
   assert.equal(controller.getState().active.revision, null);
   assert.deepEqual(controller.getState().active.areas, emptyJournalAreas());
@@ -939,6 +1138,120 @@ test("a locked DELETE preserves delivered Cloud state and opens a fresh local bl
   assert.equal(controller.getState().active.revision, null);
   assert.deepEqual(controller.getState().active.areas, emptyJournalAreas());
   assert.equal(observableStatus(controller)?.issues[0]?.code, "RECORD_LOCKED");
+});
+
+test("a stale DELETE preserves the empty clear intent and newer Cloud revision until a later edit conflicts safely", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  let created!: JournalRecord;
+  let newerCloud!: JournalRecord;
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (init.method === "POST") {
+        created = responseRecord(url, init, 0);
+        return Response.json({ record: created }, { status: 201 });
+      }
+      if (init.method === "DELETE") {
+        newerCloud = {
+          ...created,
+          revision: 1,
+          areas: { ...emptyJournalAreas(), event: "newer server text" },
+          updatedAt: "2026-08-18T00:01:00.000Z",
+        };
+        return errorResponse(409, "REVISION_CONFLICT", newerCloud);
+      }
+
+      const body = JSON.parse(String(init.body)) as {
+        conflictRecordId: string;
+      };
+      return Response.json({
+        kind: "conflict",
+        record: {
+          ...responseRecord(url, init, 0),
+          id: body.conflictRecordId,
+          conflictOf: created.id,
+        },
+        current: newerCloud,
+      });
+    },
+  });
+
+  controller.editActiveArea("event", "original local text");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  const sourceId = controller.getState().active.id;
+  controller.editActiveArea("event", "");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "DELETE"]);
+  assert.deepEqual(JSON.parse(String(requests[1]!.init.body)), {
+    expectedRevision: 0,
+  });
+  assert.equal(controller.getState().active.id, sourceId);
+  assert.equal(controller.getState().active.revision, 0);
+  assert.deepEqual(controller.getState().active.areas, emptyJournalAreas());
+  assert.equal(observableStatus(controller)?.issues[0]?.code, "DELETE_CONFLICT");
+  await nextEventLoopTurn();
+  assert.equal(requests.length, 2);
+  assert.equal(newerCloud.areas.event, "newer server text");
+
+  controller.editActiveArea("event", "preserve this after conflict");
+  assert.equal(
+    observableStatus(controller)?.issues.some(
+      (issue) => issue.code === "DELETE_CONFLICT",
+    ),
+    false,
+  );
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "DELETE", "PATCH"]);
+  const patchBody = JSON.parse(String(requests[2]!.init.body)) as {
+    expectedRevision: number;
+    areas: { event: string };
+  };
+  assert.equal(patchBody.expectedRevision, 0);
+  assert.equal(patchBody.areas.event, "preserve this after conflict");
+  assert.equal(controller.getState().active.areas.event, "preserve this after conflict");
+  assert.notEqual(controller.getState().active.id, sourceId);
+  assert.equal(newerCloud.areas.event, "newer server text");
+});
+
+test("a lost DELETE response retries the same revision and accepts idempotent missing success", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (init.method === "POST") return acceptedResponse(url, init, 0);
+      if (requests.length === 2) throw new TypeError("response lost after delete");
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  controller.editActiveArea("feeling", "delete then lose response");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  const deletedId = controller.getState().active.id;
+  controller.editActiveArea("feeling", "");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(requests.length, 2);
+  assert.equal(controller.getState().active.id, deletedId);
+  assert.equal(controller.getState().active.revision, 0);
+
+  await controller.retryPending();
+
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "DELETE", "DELETE"]);
+  assert.deepEqual(JSON.parse(String(requests[1]!.init.body)), {
+    expectedRevision: 0,
+  });
+  assert.deepEqual(JSON.parse(String(requests[2]!.init.body)), {
+    expectedRevision: 0,
+  });
+  assert.notEqual(controller.getState().active.id, deletedId);
+  assert.equal(controller.getState().active.revision, null);
 });
 
 test("storage read denial never crashes or writes unknown storage and still syncs in-memory edits", async () => {

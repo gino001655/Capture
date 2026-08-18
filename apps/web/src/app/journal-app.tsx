@@ -72,7 +72,9 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     }
   }
 
-  const visibleIssue = snapshot?.status.issues[0];
+  const visibleIssueMessages = [
+    ...new Set(snapshot?.status.issues.map((issue) => issue.message) ?? []),
+  ];
   const canFinalize = !snapshot?.status.issues.some(
     (issue) =>
       issue.localId === activeId &&
@@ -96,7 +98,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
           feeling: "",
         }}
         canFinalize={canFinalize}
-        issueMessage={visibleIssue?.message ?? null}
+        issueMessages={visibleIssueMessages}
         onEdit={(key, value) =>
           controllerRef.current?.editActiveArea(key, value)
         }

@@ -58,7 +58,9 @@ export type JournalUpdateOutcome =
 
 export type JournalDeleteOutcome =
   | { kind: "deleted" }
-  | { kind: "locked"; record: JournalRecord };
+  | { kind: "missing" }
+  | { kind: "locked"; record: JournalRecord }
+  | { kind: "conflict"; record: JournalRecord };
 
 const JOURNAL_COLLECTION_NAME = "journalRecords";
 const JOURNAL_DATE_NEWEST_FIRST_INDEX = {
@@ -270,22 +272,25 @@ export class JournalStore {
     };
   }
 
-  async delete(id: string): Promise<JournalDeleteOutcome> {
+  async delete(
+    id: string,
+    expectedRevision: number,
+  ): Promise<JournalDeleteOutcome> {
     const collection = await this.getCollection();
     const deleted = await collection.findOneAndDelete({
       _id: id,
+      revision: expectedRevision,
       deliveryState: "undelivered",
     });
 
     if (deleted !== null) return { kind: "deleted" };
 
     const current = await collection.findOne({ _id: id });
-    if (current === null) return { kind: "deleted" };
+    if (current === null) return { kind: "missing" };
     if (current.deliveryState === "delivered") {
       return { kind: "locked", record: toJournalRecord(current) };
     }
-
-    throw new Error("Undelivered Journal record could not be deleted.");
+    return { kind: "conflict", record: toJournalRecord(current) };
   }
 }
 
