@@ -1,9 +1,11 @@
 import { getMongoClient, getMongoDatabaseName } from "./mongodb.ts";
 import type {
+  JournalAreas,
   JournalCreateInput,
   JournalRecord,
   JournalUpdateInput,
 } from "./journal-record.ts";
+import { JOURNAL_AREA_KEYS } from "./journal-record.ts";
 
 export type JournalDocument = Omit<JournalRecord, "id"> & {
   _id: string;
@@ -39,6 +41,7 @@ export type JournalCollection = {
 };
 
 type JournalCollectionProvider = () => Promise<JournalCollection>;
+type JournalCollectionFactory = (name: string) => JournalCollection;
 
 type JournalStoreOptions = {
   now?: () => Date;
@@ -50,26 +53,73 @@ export type JournalUpdateOutcome =
   | { kind: "locked"; record: JournalRecord }
   | { kind: "notFound" };
 
-let journalIndexPromise: Promise<string> | undefined;
+const JOURNAL_COLLECTION_NAME = "journalRecords";
+const JOURNAL_DATE_NEWEST_FIRST_INDEX = {
+  journalDate: 1,
+  createdAt: -1,
+  _id: 1,
+} as const;
+const JOURNAL_DATE_NEWEST_FIRST_INDEX_NAME = "journal_date_newest_first";
+
+export class JournalConflictRecordCollisionError extends Error {
+  constructor() {
+    super("conflictRecordId is already assigned to a different Journal record.");
+    this.name = "JournalConflictRecordCollisionError";
+  }
+}
+
+let journalIndexPromise: Promise<void> | undefined;
+
+export async function initializeJournalCollection(
+  getCollection: JournalCollectionFactory,
+): Promise<JournalCollection> {
+  const collection = getCollection(JOURNAL_COLLECTION_NAME);
+  await collection.createIndex(JOURNAL_DATE_NEWEST_FIRST_INDEX, {
+    name: JOURNAL_DATE_NEWEST_FIRST_INDEX_NAME,
+  });
+  return collection;
+}
 
 async function getMongoJournalCollection(): Promise<JournalCollection> {
   const client = await getMongoClient();
-  const collection = client
-    .db(getMongoDatabaseName())
-    .collection<JournalDocument>("journalRecords");
+  const database = client.db(getMongoDatabaseName());
+  let initializedCollection: JournalCollection | undefined;
 
-  journalIndexPromise ??= collection.createIndex(
-    { journalDate: 1, createdAt: -1, _id: 1 },
-    { name: "journal_date_newest_first" },
-  );
+  journalIndexPromise ??= initializeJournalCollection((name) => {
+    initializedCollection = database.collection<JournalDocument>(name);
+    return initializedCollection;
+  }).then(() => undefined);
   await journalIndexPromise;
 
-  return collection;
+  return (
+    initializedCollection ??
+    database.collection<JournalDocument>(JOURNAL_COLLECTION_NAME)
+  );
 }
 
 function toJournalRecord(document: JournalDocument): JournalRecord {
   const { _id, ...record } = document;
   return { id: _id, ...record };
+}
+
+function hasSameAreas(left: JournalAreas, right: JournalAreas): boolean {
+  return JOURNAL_AREA_KEYS.every((key) => left[key] === right[key]);
+}
+
+function isConflictCopyFor(
+  document: JournalDocument,
+  sourceId: string,
+  input: JournalUpdateInput,
+): boolean {
+  return (
+    document.conflictOf === sourceId &&
+    document.deviceId === input.deviceId &&
+    document.journalDate === input.journalDate &&
+    hasSameAreas(document.areas, input.areas) &&
+    document.editingState === input.editingState &&
+    document.deliveryState === "undelivered" &&
+    document.revision === 0
+  );
 }
 
 export class JournalStore {
@@ -160,6 +210,25 @@ export class JournalStore {
       return { kind: "locked", record: currentRecord };
     }
 
+    if (input.conflictRecordId === id) {
+      throw new JournalConflictRecordCollisionError();
+    }
+
+    const existingConflict = await collection.findOne({
+      _id: input.conflictRecordId,
+    });
+    if (existingConflict !== null) {
+      if (!isConflictCopyFor(existingConflict, id, input)) {
+        throw new JournalConflictRecordCollisionError();
+      }
+
+      return {
+        kind: "conflict",
+        record: toJournalRecord(existingConflict),
+        current: currentRecord,
+      };
+    }
+
     const conflictTimestamp = this.now().toISOString();
     const conflictDocument: JournalDocument = {
       _id: input.conflictRecordId,
@@ -182,6 +251,9 @@ export class JournalStore {
     const conflict = await collection.findOne({ _id: input.conflictRecordId });
     if (conflict === null) {
       throw new Error("Journal conflict record was not found after creation.");
+    }
+    if (!isConflictCopyFor(conflict, id, input)) {
+      throw new JournalConflictRecordCollisionError();
     }
 
     return {
