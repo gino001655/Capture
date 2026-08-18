@@ -71,6 +71,25 @@ test("rejects an unauthorized POST before reading JSON or accessing the store", 
   assert.equal(input.bodyUsed, false);
 });
 
+test("rejects an unauthorized GET before validating the date or accessing the store", async () => {
+  const GET = createJournalRecordsGetHandler(
+    {
+      async listDate() {
+        assert.fail("the store must not be accessed before authorization");
+      },
+    },
+    async () => ({ status: "unauthorized" }),
+  );
+
+  const response = await GET(
+    new Request("http://localhost/api/journal-records?date=not-a-date"),
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(payload.error.code, "UNAUTHORIZED");
+});
+
 test("returns INVALID_JSON for malformed Journal creation JSON", async () => {
   const POST = createJournalRecordsPostHandler(
     { async create() { assert.fail("invalid JSON must not reach the store"); } },

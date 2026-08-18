@@ -1,4 +1,7 @@
-import { validateJournalUpdateRequest } from "../../../../lib/journal-record.ts";
+import {
+  isValidUuid,
+  validateJournalUpdateRequest,
+} from "../../../../lib/journal-record.ts";
 import {
   JournalConflictRecordCollisionError,
   journalStore,
@@ -49,6 +52,12 @@ export function createJournalRecordPatchHandler(
       return authorizationFailureResponse(authorization);
     }
 
+    const { id } = await context.params;
+
+    if (!isValidUuid(id)) {
+      return invalidJournalRecordResponse("id must be a UUID.");
+    }
+
     let requestBody: unknown;
 
     try {
@@ -62,8 +71,6 @@ export function createJournalRecordPatchHandler(
     if (!validation.success) {
       return invalidJournalRecordResponse(validation.message);
     }
-
-    const { id } = await context.params;
 
     try {
       const outcome = await store.update(id, validation.value);

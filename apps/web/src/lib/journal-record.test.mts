@@ -5,6 +5,7 @@ import {
   JOURNAL_AREA_KEYS,
   emptyJournalAreas,
   hasJournalContent,
+  isValidUuid,
   validateJournalCreateRequest,
   validateJournalDate,
   validateJournalUpdateRequest,
@@ -97,6 +98,12 @@ test("accepts a valid leap-day and rejects an impossible date", () => {
   assert.equal(validateJournalDate("0099-01-01"), true);
   assert.equal(validateJournalDate("2026-02-30"), false);
   assert.equal(validateJournalDate("2026-2-03"), false);
+});
+
+test("recognizes UUID-shaped Journal identifiers", () => {
+  assert.equal(isValidUuid("8b52495a-a8b7-4d99-a2c8-30be915dc95b"), true);
+  assert.equal(isValidUuid("not-a-uuid"), false);
+  assert.equal(isValidUuid(undefined), false);
 });
 
 test("rejects combined area content over the capture limit", () => {

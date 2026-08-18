@@ -58,6 +58,54 @@ function context(id = IDS.record) {
 
 const authorized = async () => ({ status: "authorized" as const });
 
+test("rejects an unauthorized PATCH before reading JSON, params, or accessing the store", async () => {
+  let paramsAwaited = false;
+  const PATCH = createJournalRecordPatchHandler(
+    {
+      async update() {
+        assert.fail("the store must not be accessed before authorization");
+      },
+    },
+    async () => ({ status: "unauthorized" }),
+  );
+  const input = request("{not-json");
+  const params = {
+    then() {
+      paramsAwaited = true;
+      throw new Error("params must not be awaited before authorization");
+    },
+  } as unknown as Promise<{ id: string }>;
+
+  const response = await PATCH(input, { params });
+  const payload = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(payload.error.code, "UNAUTHORIZED");
+  assert.equal(input.bodyUsed, false);
+  assert.equal(paramsAwaited, false);
+});
+
+test("rejects an invalid Journal route id before parsing or accessing the store", async () => {
+  let storeCalls = 0;
+  const PATCH = createJournalRecordPatchHandler(
+    {
+      async update() {
+        storeCalls += 1;
+        assert.fail("an invalid route id must not reach the store");
+      },
+    },
+    authorized,
+  );
+  const input = request(JSON.stringify(updateInput()));
+
+  const response = await PATCH(input, context("not-a-uuid"));
+  const payload = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(payload.error.code, "INVALID_JOURNAL_RECORD");
+  assert.equal(storeCalls, 0);
+});
+
 test("returns INVALID_JSON for malformed Journal update JSON", async () => {
   const PATCH = createJournalRecordPatchHandler(
     { async update() { assert.fail("invalid JSON must not reach the store"); } },

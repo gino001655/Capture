@@ -54,6 +54,10 @@ export type JournalUpdateValidationResult =
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+export function isValidUuid(value: unknown): value is string {
+  return typeof value === "string" && UUID_PATTERN.test(value);
+}
+
 export function emptyJournalAreas(): JournalAreas {
   return Object.fromEntries(
     JOURNAL_AREA_KEYS.map((key) => [key, ""]),
@@ -112,10 +116,10 @@ function validateCommonFields(
   }
 
   const record = input as Record<string, unknown>;
-  if (typeof record.id === "string" && !UUID_PATTERN.test(record.id)) {
+  if (typeof record.id === "string" && !isValidUuid(record.id)) {
     return { valid: false, message: "id must be a UUID." };
   }
-  if (typeof record.deviceId !== "string" || !UUID_PATTERN.test(record.deviceId)) {
+  if (!isValidUuid(record.deviceId)) {
     return { valid: false, message: "deviceId must be a UUID." };
   }
   if (!validateJournalDate(record.journalDate)) {
@@ -146,7 +150,7 @@ export function validateJournalCreateRequest(
 ): JournalCreateValidationResult {
   const common = validateCommonFields(input);
   if (!common.valid) return failure(common.message);
-  if (typeof common.input.id !== "string" || !UUID_PATTERN.test(common.input.id)) {
+  if (!isValidUuid(common.input.id)) {
     return failure("id must be a UUID.");
   }
   return { success: true, value: input as JournalCreateInput };
@@ -172,8 +176,7 @@ export function validateJournalUpdateRequest(
     return failure("expectedRevision must be a non-negative integer.");
   }
   if (
-    typeof common.input.conflictRecordId !== "string" ||
-    !UUID_PATTERN.test(common.input.conflictRecordId)
+    !isValidUuid(common.input.conflictRecordId)
   ) {
     return failure("conflictRecordId must be a UUID.");
   }
