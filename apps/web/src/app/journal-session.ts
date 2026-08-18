@@ -398,7 +398,26 @@ export function activateServerRecord(
   record: JournalRecord,
   idFactory: IdFactory,
 ): JournalLocalState {
-  if (state.active.id === record.id) return state;
+  if (state.active.id === record.id) {
+    if (
+      state.active.revision === null ||
+      record.revision <= state.active.revision
+    ) {
+      return state;
+    }
+    return {
+      ...state,
+      active: {
+        ...state.active,
+        deviceId: record.deviceId,
+        journalDate: record.journalDate,
+        areas: { ...record.areas },
+        revision: record.revision,
+        editingState: record.editingState,
+        backgroundedAt: null,
+      },
+    };
+  }
 
   const occupiedIdentifiers = collectDraftIdentifiers(state);
   occupiedIdentifiers.add(record.id);

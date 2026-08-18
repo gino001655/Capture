@@ -312,6 +312,37 @@ test("activating a Cloud record preserves the current draft and adopts the serve
   assert.equal(next.active.conflictRecordId, IDS[6]);
 });
 
+test("activating the same id adopts only a newer server revision", () => {
+  const initial = editActiveArea(
+    createLocalState(new Date("2026-08-18T01:00:00Z"), fixedIdFactory()),
+    "insight",
+    "local unsynced",
+  );
+  const acknowledged = {
+    ...initial,
+    active: { ...initial.active, revision: 4 },
+  };
+  const equal = serverRecord({
+    id: acknowledged.active.id,
+    revision: 4,
+    areas: { ...emptyJournalAreas(), insight: "equal server" },
+  });
+  const newer = serverRecord({
+    id: acknowledged.active.id,
+    revision: 5,
+    areas: { ...emptyJournalAreas(), insight: "newer server" },
+  });
+
+  const preserved = activateServerRecord(acknowledged, equal, fixedIdFactory(3));
+  const adopted = activateServerRecord(acknowledged, newer, fixedIdFactory(3));
+
+  assert.equal(preserved.active.revision, 4);
+  assert.equal(preserved.active.areas.insight, "local unsynced");
+  assert.equal(adopted.active.revision, 5);
+  assert.equal(adopted.active.areas.insight, "newer server");
+  assert.deepEqual(adopted.pending, []);
+});
+
 test("acknowledging a pending record removes only that pending mutation", () => {
   const initial = editActiveArea(
     createLocalState(new Date("2026-08-18T01:00:00Z"), fixedIdFactory()),

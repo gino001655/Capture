@@ -12,7 +12,10 @@ import {
   type JournalAreas,
   type JournalRecord,
 } from "../lib/journal-record.ts";
-import { formatJournalDateLabel } from "./journal-ui.ts";
+import {
+  formatJournalDateLabel,
+  type JournalListEntry,
+} from "./journal-ui.ts";
 
 const AREA_SYMBOLS: Record<JournalAreaKey, string> = {
   unclassified: "○",
@@ -154,9 +157,9 @@ export function JournalEditorView({
 }
 
 export type JournalRecordListViewProps = {
-  records: readonly JournalRecord[];
+  records: readonly JournalListEntry[];
   selectedId: string | null;
-  onSelect(record: JournalRecord): void;
+  onSelect(record: JournalListEntry): void;
 };
 
 export function JournalRecordListView({
@@ -197,7 +200,7 @@ export function JournalRecordListView({
 }
 
 export type JournalRecordEditorViewProps = {
-  record: JournalRecord;
+  record: Pick<JournalRecord, "deliveryState">;
   areas: JournalAreas;
   issueMessages: readonly string[];
   onEdit(key: JournalAreaKey, value: string): void;

@@ -20,7 +20,9 @@ import {
 import {
   parseJournalRecordList,
   persistJournalTheme,
+  reconcileJournalRecordList,
   readJournalTheme,
+  type JournalListEntry,
   type JournalTheme,
 } from "./journal-ui";
 import {
@@ -37,7 +39,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
   const [selectedDateOverride, setSelectedDateOverride] = useState<string | null>(null);
   const [listMode, setListMode] = useState(false);
   const [records, setRecords] = useState<JournalRecord[]>([]);
-  const [selectedRecord, setSelectedRecord] = useState<JournalRecord | null>(null);
+  const [selectedRecord, setSelectedRecord] = useState<JournalListEntry | null>(null);
   const [selectedRowId, setSelectedRowId] = useState<string | null>(null);
   const [listIssue, setListIssue] = useState<string | null>(null);
   const [listRequestVersion, setListRequestVersion] = useState(0);
@@ -128,6 +130,13 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     return <main className="journalShell" />;
   }
 
+  const reconciledList = reconcileJournalRecordList(
+    records,
+    state.active,
+    selectedDate,
+    selectedRowId,
+  );
+
   function startNewRecord() {
     focusNewSheetRef.current = true;
     if (!controllerRef.current?.finishActiveAndStartNew()) {
@@ -156,11 +165,12 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     setListRequestVersion((version) => version + 1);
   }
 
-  function selectRecord(record: JournalRecord) {
+  function selectRecord(record: JournalListEntry) {
     setSelectedRowId(record.id);
     if (
       record.deliveryState === "undelivered" &&
-      !controllerRef.current?.openRecord(record)
+      record.serverRecord !== null &&
+      !controllerRef.current?.openRecord(record.serverRecord)
     ) {
       setListIssue("目前的清除動作同步後才能開啟另一筆紀錄");
       return;
@@ -211,8 +221,8 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
                 </div>
               )}
               <JournalRecordListView
-                records={records}
-                selectedId={selectedRowId}
+                records={reconciledList.entries}
+                selectedId={reconciledList.selectedId}
                 onSelect={selectRecord}
               />
             </>
