@@ -106,6 +106,12 @@ function createHarness() {
       documents.set(next._id, next);
       return structuredClone(next);
     },
+    async findOneAndDelete(filter) {
+      const existing = findMatchingDocument(documents, filter);
+      if (existing === undefined) return null;
+      documents.delete(existing._id);
+      return structuredClone(existing);
+    },
     find(filter) {
       return {
         sort(sort) {
@@ -310,4 +316,49 @@ test("refuses to edit a delivered record", async () => {
   );
 
   assert.equal(outcome.kind, "locked");
+});
+
+async function deleteFromStore(
+  store: JournalStore,
+  id: string,
+): Promise<{ kind: string; record?: unknown }> {
+  const deleteRecord = (
+    store as unknown as {
+      delete?: (id: string) => Promise<{ kind: string; record?: unknown }>;
+    }
+  ).delete;
+  assert.equal(typeof deleteRecord, "function");
+  if (deleteRecord === undefined) return { kind: "missing-method" };
+  return deleteRecord.call(store, id);
+}
+
+test("deletes an undelivered Journal record", async () => {
+  const { store, documents } = createHarness();
+  const record = await store.create(createInput(IDS.older));
+
+  const outcome = await deleteFromStore(store, record.id);
+
+  assert.deepEqual(outcome, { kind: "deleted" });
+  assert.equal(documents.has(record.id), false);
+});
+
+test("deleting an already-missing Journal record is idempotently successful", async () => {
+  const { store } = createHarness();
+
+  const outcome = await deleteFromStore(store, IDS.older);
+
+  assert.deepEqual(outcome, { kind: "deleted" });
+});
+
+test("refuses to delete a delivered Journal record and returns the locked record", async () => {
+  const { store, documents, setDeliveryState } = createHarness();
+  const record = await store.create(createInput(IDS.older));
+  setDeliveryState(record.id, "delivered");
+
+  const outcome = await deleteFromStore(store, record.id);
+
+  assert.equal(outcome.kind, "locked");
+  assert.equal((outcome.record as { id: string }).id, record.id);
+  assert.equal(documents.has(record.id), true);
+  assert.equal(documents.get(record.id)?.deliveryState, "delivered");
 });

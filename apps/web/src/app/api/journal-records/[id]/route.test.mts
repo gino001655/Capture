@@ -9,6 +9,7 @@ import {
 import {
   JournalConflictRecordCollisionError,
 } from "../../../../lib/journal-store.ts";
+import * as JournalRecordRoute from "./route.ts";
 import { createJournalRecordPatchHandler } from "./route.ts";
 
 const IDS = {
@@ -222,4 +223,115 @@ test("maps conflict-record identifier collisions to 409 without acknowledging th
   assert.equal(payload.error.code, "CONFLICT_ID_COLLISION");
   assert.equal(payload.record, undefined);
   assert.equal(payload.kind, undefined);
+});
+
+type DeleteHandler = (
+  request: Request,
+  context: ReturnType<typeof context>,
+) => Promise<Response>;
+
+function createDeleteHandler(
+  store: { delete(id: string): Promise<unknown> },
+  authorize = authorized,
+): DeleteHandler {
+  const factory = (
+    JournalRecordRoute as Record<string, unknown>
+  ).createJournalRecordDeleteHandler;
+  assert.equal(typeof factory, "function");
+  if (typeof factory !== "function") {
+    return async () => new Response(null, { status: 500 });
+  }
+  return factory(store, authorize) as DeleteHandler;
+}
+
+test("rejects an unauthorized DELETE before awaiting params or accessing the store", async () => {
+  let paramsAwaited = false;
+  const DELETE = createDeleteHandler(
+    {
+      async delete() {
+        assert.fail("the store must not be accessed before authorization");
+      },
+    },
+    async () => ({ status: "unauthorized" }),
+  );
+  const params = {
+    then() {
+      paramsAwaited = true;
+      throw new Error("params must not be awaited before authorization");
+    },
+  } as unknown as Promise<{ id: string }>;
+
+  const response = await DELETE(
+    new Request(`http://localhost/api/journal-records/${IDS.record}`, {
+      method: "DELETE",
+    }),
+    { params },
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 401);
+  assert.equal(payload.error.code, "UNAUTHORIZED");
+  assert.equal(paramsAwaited, false);
+});
+
+test("rejects an invalid DELETE route id before accessing the store", async () => {
+  const DELETE = createDeleteHandler({
+    async delete() {
+      assert.fail("invalid ids must not reach the store");
+    },
+  });
+
+  const response = await DELETE(
+    new Request("http://localhost/api/journal-records/not-a-uuid", {
+      method: "DELETE",
+    }),
+    context("not-a-uuid"),
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 400);
+  assert.equal(payload.error.code, "INVALID_JOURNAL_RECORD");
+});
+
+test("maps deleted and already-missing store outcomes to idempotent 204", async () => {
+  for (const alreadyMissing of [false, true]) {
+    const DELETE = createDeleteHandler({
+      async delete(id) {
+        assert.equal(id, IDS.record);
+        return { kind: "deleted", alreadyMissing };
+      },
+    });
+
+    const response = await DELETE(
+      new Request(`http://localhost/api/journal-records/${IDS.record}`, {
+        method: "DELETE",
+      }),
+      context(),
+    );
+
+    assert.equal(response.status, 204);
+    assert.equal(await response.text(), "");
+  }
+});
+
+test("maps a delivered DELETE outcome to RECORD_LOCKED without claiming deletion", async () => {
+  const lockedRecord = record({ deliveryState: "delivered" });
+  const DELETE = createDeleteHandler({
+    async delete(id) {
+      assert.equal(id, IDS.record);
+      return { kind: "locked", record: lockedRecord };
+    },
+  });
+
+  const response = await DELETE(
+    new Request(`http://localhost/api/journal-records/${IDS.record}`, {
+      method: "DELETE",
+    }),
+    context(),
+  );
+  const payload = await response.json();
+
+  assert.equal(response.status, 409);
+  assert.equal(payload.error.code, "RECORD_LOCKED");
+  assert.deepEqual(payload.record, lockedRecord);
 });

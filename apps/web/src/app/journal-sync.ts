@@ -102,10 +102,12 @@ export type JournalSyncStatus = {
 type MutationTarget = {
   draft: LocalJournalDraft;
   activeVersion: number | null;
+  operation: "create" | "update" | "delete";
 };
 
 type MutationOutcome =
   | { kind: "acknowledged"; record: JournalRecord }
+  | { kind: "deleted" }
   | { kind: "invalid"; code: "INVALID_JOURNAL_RECORD" }
   | { kind: "auth"; code: "UNAUTHORIZED" | "AUTH_NOT_CONFIGURED" }
   | { kind: "not-found" }
@@ -208,9 +210,12 @@ function readErrorCode(payload: unknown): string | undefined {
 
 async function readMutationOutcome(
   response: Response,
-  target: LocalJournalDraft,
+  target: MutationTarget,
 ): Promise<MutationOutcome> {
-  const method = target.revision === null ? "POST" : "PATCH";
+  const { draft } = target;
+  if (target.operation === "delete" && response.status === 204) {
+    return { kind: "deleted" };
+  }
 
   let payload: unknown;
   try {
@@ -222,8 +227,8 @@ async function readMutationOutcome(
   }
 
   const expectedStatus =
-    (method === "POST" && response.status === 201) ||
-    (method === "PATCH" && response.status === 200);
+    (target.operation === "create" && response.status === 201) ||
+    (target.operation === "update" && response.status === 200);
   if (!expectedStatus) {
     const code = readErrorCode(payload);
     if (response.status === 400) {
@@ -235,7 +240,7 @@ async function readMutationOutcome(
     if (response.status === 503 && code === "AUTH_NOT_CONFIGURED") {
       return { kind: "auth", code: "AUTH_NOT_CONFIGURED" };
     }
-    if (response.status === 404 && method === "PATCH") {
+    if (response.status === 404 && target.operation === "update") {
       return { kind: "not-found" };
     }
     if (response.status === 409 && code === "CONFLICT_ID_COLLISION") {
@@ -253,14 +258,14 @@ async function readMutationOutcome(
     return { kind: "malformed" };
   }
 
-  if (method === "POST") {
-    return isAcceptedRecordForTarget(payload.record, target, "created")
+  if (target.operation === "create") {
+    return isAcceptedRecordForTarget(payload.record, draft, "created")
       ? { kind: "acknowledged", record: payload.record }
       : { kind: "malformed" };
   }
 
   if (payload.kind === "updated") {
-    return isAcceptedRecordForTarget(payload.record, target, "updated")
+    return isAcceptedRecordForTarget(payload.record, draft, "updated")
       ? { kind: "acknowledged", record: payload.record }
       : { kind: "malformed" };
   }
@@ -268,7 +273,7 @@ async function readMutationOutcome(
   if (
     payload.kind === "conflict" &&
     isJournalRecord(payload.current) &&
-    isAcceptedRecordForTarget(payload.record, target, "conflict")
+    isAcceptedRecordForTarget(payload.record, draft, "conflict")
   ) {
     return { kind: "acknowledged", record: payload.record };
   }
@@ -356,46 +361,69 @@ export function createJournalSyncController(
   function selectTarget(): MutationTarget | null {
     const pending = state.pending.find((draft) => !blockedIds.has(draft.id));
     if (pending !== undefined) {
-      return { draft: pending, activeVersion: null };
+      return {
+        draft: pending,
+        activeVersion: null,
+        operation: pending.revision === null ? "create" : "update",
+      };
     }
 
     if (
       activeReady &&
-      hasJournalContent(state.active.areas) &&
       !blockedIds.has(state.active.id)
     ) {
-      return { draft: state.active, activeVersion };
+      if (hasJournalContent(state.active.areas)) {
+        return {
+          draft: state.active,
+          activeVersion,
+          operation: state.active.revision === null ? "create" : "update",
+        };
+      }
+      if (state.active.revision !== null) {
+        return { draft: state.active, activeVersion, operation: "delete" };
+      }
     }
 
     return null;
   }
 
-  async function sendMutation(target: LocalJournalDraft): Promise<MutationOutcome> {
-    const isCreate = target.revision === null;
-    const url = isCreate
+  async function sendMutation(target: MutationTarget): Promise<MutationOutcome> {
+    const { draft } = target;
+    const url = target.operation === "create"
       ? "/api/journal-records"
-      : `/api/journal-records/${encodeURIComponent(target.id)}`;
-    const body = isCreate
+      : `/api/journal-records/${encodeURIComponent(draft.id)}`;
+    const body = target.operation === "create"
       ? {
-          id: target.id,
-          deviceId: target.deviceId,
-          journalDate: target.journalDate,
-          areas: target.areas,
+          id: draft.id,
+          deviceId: draft.deviceId,
+          journalDate: draft.journalDate,
+          areas: draft.areas,
         }
-      : {
-          deviceId: target.deviceId,
-          journalDate: target.journalDate,
-          areas: target.areas,
-          editingState: target.editingState,
-          expectedRevision: target.revision,
-          conflictRecordId: target.conflictRecordId,
-        };
+      : target.operation === "update"
+        ? {
+            deviceId: draft.deviceId,
+            journalDate: draft.journalDate,
+            areas: draft.areas,
+            editingState: draft.editingState,
+            expectedRevision: draft.revision,
+            conflictRecordId: draft.conflictRecordId,
+          }
+        : undefined;
 
     try {
       const response = await options.request(url, {
-        method: isCreate ? "POST" : "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
+        method:
+          target.operation === "create"
+            ? "POST"
+            : target.operation === "update"
+              ? "PATCH"
+              : "DELETE",
+        ...(body === undefined
+          ? {}
+          : {
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(body),
+            }),
         signal: abortController.signal,
       });
       if (disposed) return { kind: "transient" };
@@ -476,6 +504,30 @@ export function createJournalSyncController(
     publish(nextState);
   }
 
+  function applyDeletion(target: MutationTarget): void {
+    const current = findCurrentDraft(target.draft.id);
+    if (current === undefined) return;
+
+    blockedIds.delete(target.draft.id);
+    clearRecordIssues(target.draft.id);
+
+    if (hasJournalContent(current.areas)) {
+      publish(forkLockedDraft(state, current.id, idFactory));
+      return;
+    }
+
+    if (state.active.id === current.id) {
+      activeReady = false;
+      publish(finishActive(state, now(), idFactory));
+      return;
+    }
+
+    publish({
+      ...state,
+      pending: state.pending.filter((draft) => draft.id !== current.id),
+    });
+  }
+
   async function drainLoop(): Promise<void> {
     clearAuthIssues();
     const collisionRetries = new Set<string>();
@@ -494,11 +546,16 @@ export function createJournalSyncController(
         continue;
       }
 
-      const outcome = await sendMutation(target.draft);
+      const outcome = await sendMutation(target);
       if (disposed) return;
 
       if (outcome.kind === "acknowledged") {
         applyAcknowledgement(target, outcome.record);
+        continue;
+      }
+
+      if (outcome.kind === "deleted") {
+        applyDeletion(target);
         continue;
       }
 

@@ -871,3 +871,93 @@ test("mismatched PATCH ids revisions and areas retain local state until a later 
   assert.equal(controller.getState().active.revision, 1);
   assert.equal(controller.getState().active.areas.feeling, "must remain local");
 });
+
+test("clearing an acknowledged active draft DELETEs Cloud then opens a fresh blank identity", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (init.method === "DELETE") return new Response(null, { status: 204 });
+      return acceptedResponse(url, init, 0);
+    },
+  });
+
+  controller.editActiveArea("event", "save then clear");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  const deletedId = controller.getState().active.id;
+  controller.editActiveArea("event", "");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "DELETE"]);
+  assert.equal(requests[1]!.url, `/api/journal-records/${deletedId}`);
+  assert.notEqual(controller.getState().active.id, deletedId);
+  assert.equal(controller.getState().active.revision, null);
+  assert.deepEqual(controller.getState().active.areas, emptyJournalAreas());
+});
+
+test("typing while DELETE is in flight preserves the new text under fresh identity then POSTs it", async () => {
+  let resolveDelete!: (response: Response) => void;
+  const deleteResponse = new Promise<Response>((resolve) => {
+    resolveDelete = resolve;
+  });
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (init.method === "DELETE") return deleteResponse;
+      return acceptedResponse(url, init, init.method === "POST" ? 0 : 1);
+    },
+  });
+
+  controller.editActiveArea("insight", "old Cloud text");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  const deletedId = controller.getState().active.id;
+  controller.editActiveArea("insight", "");
+  scheduler.advance(1_500);
+  controller.editActiveArea("insight", "typed during delete");
+  scheduler.advance(1_500);
+  resolveDelete(new Response(null, { status: 204 }));
+  await nextEventLoopTurn();
+
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "DELETE", "POST"]);
+  const recreated = JSON.parse(String(requests[2]!.init.body)) as {
+    id: string;
+    areas: { insight: string };
+  };
+  assert.notEqual(recreated.id, deletedId);
+  assert.equal(recreated.areas.insight, "typed during delete");
+  assert.equal(controller.getState().active.id, recreated.id);
+  assert.equal(controller.getState().active.revision, 0);
+  assert.equal(controller.getState().active.areas.insight, "typed during delete");
+});
+
+test("a locked DELETE preserves delivered Cloud state and opens a fresh local blank with an issue", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (init.method === "DELETE") {
+        return errorResponse(409, "RECORD_LOCKED");
+      }
+      return acceptedResponse(url, init, 0);
+    },
+  });
+
+  controller.editActiveArea("feeling", "delivered elsewhere");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  const deliveredId = controller.getState().active.id;
+  controller.editActiveArea("feeling", "");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "DELETE"]);
+  assert.equal(requests[1]!.url, `/api/journal-records/${deliveredId}`);
+  assert.notEqual(controller.getState().active.id, deliveredId);
+  assert.equal(controller.getState().active.revision, null);
+  assert.deepEqual(controller.getState().active.areas, emptyJournalAreas());
+  assert.equal(observableStatus(controller)?.issues[0]?.code, "RECORD_LOCKED");
+});

@@ -14,6 +14,7 @@ import {
 } from "../../../../lib/authorization.ts";
 
 type JournalUpdater = Pick<JournalStore, "update">;
+type JournalDeleter = Pick<JournalStore, "delete">;
 type ClientAuthorizer = (request: Request) => Promise<AuthorizationResult>;
 type RouteContext = { params: Promise<{ id: string }> };
 
@@ -123,4 +124,40 @@ export function createJournalRecordPatchHandler(
   };
 }
 
+export function createJournalRecordDeleteHandler(
+  store: JournalDeleter,
+  authorize: ClientAuthorizer = authorizeClientRequest,
+) {
+  return async function DELETE(request: Request, context: RouteContext) {
+    const authorization = await authorize(request);
+
+    if (authorization.status !== "authorized") {
+      return authorizationFailureResponse(authorization);
+    }
+
+    const { id } = await context.params;
+
+    if (!isValidUuid(id)) {
+      return invalidJournalRecordResponse("id must be a UUID.");
+    }
+
+    const outcome = await store.delete(id);
+    if (outcome.kind === "deleted") {
+      return new Response(null, { status: 204 });
+    }
+
+    return Response.json(
+      {
+        error: {
+          code: "RECORD_LOCKED",
+          message: "Delivered Journal records cannot be deleted.",
+        },
+        record: outcome.record,
+      },
+      { status: 409 },
+    );
+  };
+}
+
 export const PATCH = createJournalRecordPatchHandler(journalStore);
+export const DELETE = createJournalRecordDeleteHandler(journalStore);
