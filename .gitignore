@@ -19,3 +19,6 @@ target/
 # Operating-system files
 .DS_Store
 Thumbs.db
+
+# Local Git worktrees
+.worktrees/
