@@ -6,6 +6,7 @@ import {
   type JournalAreaKey,
   type JournalRecord,
 } from "../lib/journal-record.ts";
+import { MAX_CAPTURE_LENGTH } from "../lib/capture.ts";
 import {
   applyServerRecord,
   AUTOSAVE_DELAY_MS,
@@ -15,6 +16,9 @@ import {
   JOURNAL_LOCAL_STORAGE_KEY,
   markBackgrounded,
   readLocalState,
+  rebaseDraftForCreate,
+  rotateConflictReservation,
+  forkLockedDraft,
   type JournalLocalState,
   type LocalJournalDraft,
 } from "./journal-session.ts";
@@ -66,6 +70,7 @@ export type JournalSyncControllerOptions = {
 
 export type JournalSyncController = {
   getState(): JournalLocalState;
+  getStatus(): JournalSyncStatus;
   subscribe(listener: () => void): () => void;
   editActiveArea(key: JournalAreaKey, value: string): void;
   finishActiveAndStartNew(): boolean;
@@ -76,10 +81,38 @@ export type JournalSyncController = {
   dispose(): void;
 };
 
+export type JournalSyncIssueCode =
+  | "CONTENT_TOO_LONG"
+  | "INVALID_JOURNAL_RECORD"
+  | "UNAUTHORIZED"
+  | "AUTH_NOT_CONFIGURED"
+  | "RECORD_LOCKED";
+
+export type JournalSyncIssue = {
+  code: JournalSyncIssueCode;
+  message: string;
+  localId?: string;
+};
+
+export type JournalSyncStatus = {
+  durability: "durable";
+  issues: readonly JournalSyncIssue[];
+};
+
 type MutationTarget = {
   draft: LocalJournalDraft;
   activeVersion: number | null;
 };
+
+type MutationOutcome =
+  | { kind: "acknowledged"; record: JournalRecord }
+  | { kind: "invalid"; code: "INVALID_JOURNAL_RECORD" }
+  | { kind: "auth"; code: "UNAUTHORIZED" | "AUTH_NOT_CONFIGURED" }
+  | { kind: "not-found" }
+  | { kind: "conflict-id-collision" }
+  | { kind: "record-locked" }
+  | { kind: "transient" }
+  | { kind: "malformed" };
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -108,6 +141,13 @@ function hasSameAreas(
   right: JournalRecord["areas"],
 ): boolean {
   return JOURNAL_AREA_KEYS.every((key) => left[key] === right[key]);
+}
+
+function hasExcessContent(areas: LocalJournalDraft["areas"]): boolean {
+  return (
+    JOURNAL_AREA_KEYS.reduce((total, key) => total + areas[key].length, 0) >
+    MAX_CAPTURE_LENGTH
+  );
 }
 
 function hasSameMutableFields(
@@ -161,37 +201,68 @@ function isAcceptedRecordForTarget(
   );
 }
 
-async function readAcknowledgement(
+function readErrorCode(payload: unknown): string | undefined {
+  if (!isPlainObject(payload) || !isPlainObject(payload.error)) return undefined;
+  return typeof payload.error.code === "string" ? payload.error.code : undefined;
+}
+
+async function readMutationOutcome(
   response: Response,
   target: LocalJournalDraft,
-): Promise<JournalRecord | null> {
+): Promise<MutationOutcome> {
   const method = target.revision === null ? "POST" : "PATCH";
-  if (
-    (method === "POST" && response.status !== 201) ||
-    (method === "PATCH" && response.status !== 200)
-  ) {
-    return null;
-  }
 
   let payload: unknown;
   try {
     payload = await response.json();
   } catch {
-    return null;
+    return response.status >= 500
+      ? { kind: "transient" }
+      : { kind: "malformed" };
   }
 
-  if (!isPlainObject(payload) || !isJournalRecord(payload.record)) return null;
+  const expectedStatus =
+    (method === "POST" && response.status === 201) ||
+    (method === "PATCH" && response.status === 200);
+  if (!expectedStatus) {
+    const code = readErrorCode(payload);
+    if (response.status === 400) {
+      return { kind: "invalid", code: "INVALID_JOURNAL_RECORD" };
+    }
+    if (response.status === 401) {
+      return { kind: "auth", code: "UNAUTHORIZED" };
+    }
+    if (response.status === 503 && code === "AUTH_NOT_CONFIGURED") {
+      return { kind: "auth", code: "AUTH_NOT_CONFIGURED" };
+    }
+    if (response.status === 404 && method === "PATCH") {
+      return { kind: "not-found" };
+    }
+    if (response.status === 409 && code === "CONFLICT_ID_COLLISION") {
+      return { kind: "conflict-id-collision" };
+    }
+    if (response.status === 409 && code === "RECORD_LOCKED") {
+      return { kind: "record-locked" };
+    }
+    return response.status >= 500
+      ? { kind: "transient" }
+      : { kind: "malformed" };
+  }
+
+  if (!isPlainObject(payload) || !isJournalRecord(payload.record)) {
+    return { kind: "malformed" };
+  }
 
   if (method === "POST") {
     return isAcceptedRecordForTarget(payload.record, target, "created")
-      ? payload.record
-      : null;
+      ? { kind: "acknowledged", record: payload.record }
+      : { kind: "malformed" };
   }
 
   if (payload.kind === "updated") {
     return isAcceptedRecordForTarget(payload.record, target, "updated")
-      ? payload.record
-      : null;
+      ? { kind: "acknowledged", record: payload.record }
+      : { kind: "malformed" };
   }
 
   if (
@@ -199,10 +270,10 @@ async function readAcknowledgement(
     isJournalRecord(payload.current) &&
     isAcceptedRecordForTarget(payload.record, target, "conflict")
   ) {
-    return payload.record;
+    return { kind: "acknowledged", record: payload.record };
   }
 
-  return null;
+  return { kind: "malformed" };
 }
 
 export function createJournalSyncController(
@@ -234,12 +305,46 @@ export function createJournalSyncController(
   let activeVersion = 0;
   let draining: Promise<void> | null = null;
   let rerunRequested = false;
+  let status: JournalSyncStatus = { durability: "durable", issues: [] };
+  const blockedIds = new Set<string>();
+
+  function notifyListeners(): void {
+    for (const listener of listeners) listener();
+  }
 
   function publish(nextState: JournalLocalState): void {
     if (disposed) return;
     state = nextState;
     options.storage.setItem(JOURNAL_LOCAL_STORAGE_KEY, JSON.stringify(state));
-    for (const listener of listeners) listener();
+    notifyListeners();
+  }
+
+  function setIssue(issue: JournalSyncIssue): void {
+    const withoutPrevious = status.issues.filter(
+      (candidate) =>
+        candidate.code !== issue.code || candidate.localId !== issue.localId,
+    );
+    status = { ...status, issues: [...withoutPrevious, issue] };
+    notifyListeners();
+  }
+
+  function clearRecordIssues(localId: string): void {
+    const nextIssues = status.issues.filter(
+      (issue) => issue.localId !== localId || issue.code === "RECORD_LOCKED",
+    );
+    if (nextIssues.length === status.issues.length) return;
+    status = { ...status, issues: nextIssues };
+    notifyListeners();
+  }
+
+  function clearAuthIssues(): void {
+    const nextIssues = status.issues.filter(
+      (issue) =>
+        issue.code !== "UNAUTHORIZED" && issue.code !== "AUTH_NOT_CONFIGURED",
+    );
+    if (nextIssues.length === status.issues.length) return;
+    status = { ...status, issues: nextIssues };
+    notifyListeners();
   }
 
   function clearDebounce(): void {
@@ -249,19 +354,23 @@ export function createJournalSyncController(
   }
 
   function selectTarget(): MutationTarget | null {
-    const pending = state.pending[0];
+    const pending = state.pending.find((draft) => !blockedIds.has(draft.id));
     if (pending !== undefined) {
       return { draft: pending, activeVersion: null };
     }
 
-    if (activeReady && hasJournalContent(state.active.areas)) {
+    if (
+      activeReady &&
+      hasJournalContent(state.active.areas) &&
+      !blockedIds.has(state.active.id)
+    ) {
       return { draft: state.active, activeVersion };
     }
 
     return null;
   }
 
-  async function sendMutation(target: LocalJournalDraft): Promise<JournalRecord | null> {
+  async function sendMutation(target: LocalJournalDraft): Promise<MutationOutcome> {
     const isCreate = target.revision === null;
     const url = isCreate
       ? "/api/journal-records"
@@ -289,10 +398,10 @@ export function createJournalSyncController(
         body: JSON.stringify(body),
         signal: abortController.signal,
       });
-      if (disposed) return null;
-      return await readAcknowledgement(response, target);
+      if (disposed) return { kind: "transient" };
+      return await readMutationOutcome(response, target);
     } catch {
-      return null;
+      return { kind: "transient" };
     }
   }
 
@@ -322,6 +431,9 @@ export function createJournalSyncController(
   ): void {
     const current = findCurrentDraft(target.draft.id);
     if (current === undefined) return;
+
+    blockedIds.delete(target.draft.id);
+    clearRecordIssues(target.draft.id);
 
     const pendingIndex = state.pending.findIndex(
       (draft) => draft.id === target.draft.id,
@@ -365,13 +477,78 @@ export function createJournalSyncController(
   }
 
   async function drainLoop(): Promise<void> {
+    clearAuthIssues();
+    const collisionRetries = new Set<string>();
+
     while (!disposed) {
       const target = selectTarget();
       if (target === null) return;
 
-      const record = await sendMutation(target.draft);
-      if (disposed || record === null) return;
-      applyAcknowledgement(target, record);
+      if (hasExcessContent(target.draft.areas)) {
+        blockedIds.add(target.draft.id);
+        setIssue({
+          code: "CONTENT_TOO_LONG",
+          localId: target.draft.id,
+          message: `Journal content must be ${MAX_CAPTURE_LENGTH.toLocaleString()} characters or fewer.`,
+        });
+        continue;
+      }
+
+      const outcome = await sendMutation(target.draft);
+      if (disposed) return;
+
+      if (outcome.kind === "acknowledged") {
+        applyAcknowledgement(target, outcome.record);
+        continue;
+      }
+
+      if (outcome.kind === "invalid") {
+        blockedIds.add(target.draft.id);
+        setIssue({
+          code: outcome.code,
+          localId: target.draft.id,
+          message: "This Journal record needs correction before it can sync.",
+        });
+        continue;
+      }
+
+      if (outcome.kind === "auth") {
+        setIssue({
+          code: outcome.code,
+          message: "Journal sync is paused until authentication is available.",
+        });
+        return;
+      }
+
+      if (outcome.kind === "not-found") {
+        publish(rebaseDraftForCreate(state, target.draft.id));
+        continue;
+      }
+
+      if (outcome.kind === "conflict-id-collision") {
+        publish(rotateConflictReservation(state, target.draft.id, idFactory));
+        if (collisionRetries.has(target.draft.id)) return;
+        collisionRetries.add(target.draft.id);
+        continue;
+      }
+
+      if (outcome.kind === "record-locked") {
+        const recoveredState = forkLockedDraft(
+          state,
+          target.draft.id,
+          idFactory,
+        );
+        blockedIds.delete(target.draft.id);
+        publish(recoveredState);
+        setIssue({
+          code: "RECORD_LOCKED",
+          localId: target.draft.id,
+          message: "The delivered Cloud record is locked; the local edit was preserved as a new record.",
+        });
+        continue;
+      }
+
+      return;
     }
   }
 
@@ -395,6 +572,15 @@ export function createJournalSyncController(
 
   function finishActiveAndStartNew(): boolean {
     if (disposed || !hasJournalContent(state.active.areas)) return false;
+    if (hasExcessContent(state.active.areas)) {
+      blockedIds.add(state.active.id);
+      setIssue({
+        code: "CONTENT_TOO_LONG",
+        localId: state.active.id,
+        message: `Journal content must be ${MAX_CAPTURE_LENGTH.toLocaleString()} characters or fewer.`,
+      });
+      return false;
+    }
     clearDebounce();
     activeReady = false;
     publish(finishActive(state, now(), idFactory));
@@ -406,6 +592,9 @@ export function createJournalSyncController(
     getState() {
       return state;
     },
+    getStatus() {
+      return status;
+    },
     subscribe(listener) {
       listeners.add(listener);
       return () => listeners.delete(listener);
@@ -414,7 +603,20 @@ export function createJournalSyncController(
       if (disposed) return;
       activeVersion += 1;
       activeReady = false;
-      publish(editActiveArea(state, key, value));
+      const localId = state.active.id;
+      const nextState = editActiveArea(state, key, value);
+      publish(nextState);
+      if (hasExcessContent(nextState.active.areas)) {
+        blockedIds.add(localId);
+        setIssue({
+          code: "CONTENT_TOO_LONG",
+          localId,
+          message: `Journal content must be ${MAX_CAPTURE_LENGTH.toLocaleString()} characters or fewer.`,
+        });
+      } else {
+        blockedIds.delete(localId);
+        clearRecordIssues(localId);
+      }
       clearDebounce();
       debounceHandle = schedule(() => {
         debounceHandle = null;

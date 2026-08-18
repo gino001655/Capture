@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import * as JournalSession from "./journal-session.ts";
+
 import {
   applyServerRecord,
   createLocalState,
@@ -406,4 +408,82 @@ test("repairs a shared pending conflict reservation without losing pending conte
 
 test("the local storage key is a versioned, stable name", () => {
   assert.equal(JOURNAL_LOCAL_STORAGE_KEY, "capture.journal.v1");
+});
+
+test("collision recovery rotates only the target draft conflict reservation", () => {
+  const rotateConflictReservation = (
+    JournalSession as Record<string, unknown>
+  ).rotateConflictReservation;
+  assert.equal(typeof rotateConflictReservation, "function");
+  if (typeof rotateConflictReservation !== "function") return;
+
+  const source = stateWithPending();
+  const next = rotateConflictReservation(
+    source,
+    source.pending[0]!.id,
+    fixedIdFactory(5),
+  ) as ReturnType<typeof stateWithPending>;
+
+  assert.equal(next.pending[0]!.id, source.pending[0]!.id);
+  assert.equal(next.pending[0]!.revision, source.pending[0]!.revision);
+  assert.deepEqual(next.pending[0]!.areas, source.pending[0]!.areas);
+  assert.equal(next.pending[0]!.conflictRecordId, IDS[5]);
+  assert.deepEqual(next.active, source.active);
+});
+
+test("missing-record recovery resets only revision and preserves draft identity and position", () => {
+  const rebaseDraftForCreate = (
+    JournalSession as Record<string, unknown>
+  ).rebaseDraftForCreate;
+  assert.equal(typeof rebaseDraftForCreate, "function");
+  if (typeof rebaseDraftForCreate !== "function") return;
+
+  const source = stateWithPending();
+  const withRevision = {
+    ...source,
+    pending: [{ ...source.pending[0]!, revision: 4 }],
+  };
+  const next = rebaseDraftForCreate(
+    withRevision,
+    withRevision.pending[0]!.id,
+  ) as typeof withRevision;
+
+  assert.equal(next.pending[0]!.revision, null);
+  assert.equal(next.pending[0]!.id, withRevision.pending[0]!.id);
+  assert.equal(
+    next.pending[0]!.conflictRecordId,
+    withRevision.pending[0]!.conflictRecordId,
+  );
+  assert.deepEqual(next.pending[0]!.areas, withRevision.pending[0]!.areas);
+  assert.deepEqual(next.active, withRevision.active);
+});
+
+test("locked-record recovery preserves local content under fresh active identity and reservation", () => {
+  const forkLockedDraft = (
+    JournalSession as Record<string, unknown>
+  ).forkLockedDraft;
+  assert.equal(typeof forkLockedDraft, "function");
+  if (typeof forkLockedDraft !== "function") return;
+
+  const source = editActiveArea(
+    createLocalState(new Date("2026-08-18T01:00:00Z"), fixedIdFactory()),
+    "insight",
+    "keep this local edit",
+  );
+  const acknowledged = {
+    ...source,
+    active: { ...source.active, revision: 3 },
+  };
+  const next = forkLockedDraft(
+    acknowledged,
+    acknowledged.active.id,
+    fixedIdFactory(3),
+  ) as typeof acknowledged;
+
+  assert.equal(next.active.id, IDS[3]);
+  assert.equal(next.active.conflictRecordId, IDS[4]);
+  assert.equal(next.active.revision, null);
+  assert.equal(next.active.areas.insight, "keep this local edit");
+  assert.equal(next.active.editingState, "active");
+  assert.deepEqual(next.pending, acknowledged.pending);
 });

@@ -392,3 +392,56 @@ export function applyServerRecord(
     pending: state.pending.filter((draft) => draft.id !== localId),
   };
 }
+
+function replaceDraft(
+  state: JournalLocalState,
+  localId: string,
+  replace: (draft: LocalJournalDraft) => LocalJournalDraft,
+): JournalLocalState {
+  if (state.active.id === localId) {
+    return { ...state, active: replace(state.active) };
+  }
+
+  const pendingIndex = state.pending.findIndex((draft) => draft.id === localId);
+  if (pendingIndex === -1) return state;
+
+  return {
+    ...state,
+    pending: state.pending.map((draft, index) =>
+      index === pendingIndex ? replace(draft) : draft,
+    ),
+  };
+}
+
+export function rotateConflictReservation(
+  state: JournalLocalState,
+  localId: string,
+  idFactory: IdFactory,
+): JournalLocalState {
+  const occupiedIdentifiers = collectDraftIdentifiers(state);
+  return replaceDraft(state, localId, (draft) => ({
+    ...draft,
+    conflictRecordId: takeDistinctId(idFactory, occupiedIdentifiers),
+  }));
+}
+
+export function rebaseDraftForCreate(
+  state: JournalLocalState,
+  localId: string,
+): JournalLocalState {
+  return replaceDraft(state, localId, (draft) => ({ ...draft, revision: null }));
+}
+
+export function forkLockedDraft(
+  state: JournalLocalState,
+  localId: string,
+  idFactory: IdFactory,
+): JournalLocalState {
+  const occupiedIdentifiers = collectDraftIdentifiers(state);
+  return replaceDraft(state, localId, (draft) => ({
+    ...draft,
+    id: takeDistinctId(idFactory, occupiedIdentifiers),
+    conflictRecordId: takeDistinctId(idFactory, occupiedIdentifiers),
+    revision: null,
+  }));
+}

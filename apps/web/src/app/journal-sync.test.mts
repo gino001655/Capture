@@ -9,6 +9,7 @@ import {
 import {
   createLocalState,
   editActiveArea,
+  finishActive,
   JOURNAL_LOCAL_STORAGE_KEY,
   type JournalLocalState,
 } from "./journal-session.ts";
@@ -148,6 +149,55 @@ function makeController(
 
 async function nextEventLoopTurn(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+type ObservableSyncStatus = {
+  durability: string;
+  issues: ReadonlyArray<{ code: string; localId?: string }>;
+};
+
+function observableStatus(
+  controller: ReturnType<typeof createJournalSyncController>,
+): ObservableSyncStatus | undefined {
+  return (
+    controller as unknown as { getStatus?: () => ObservableSyncStatus }
+  ).getStatus?.();
+}
+
+function stateWithTwoPending(): {
+  state: JournalLocalState;
+  nextId: () => string;
+} {
+  const nextId = idFactory();
+  let state = createLocalState(
+    new Date("2026-08-18T01:00:00.000Z"),
+    nextId,
+  );
+  state = finishActive(
+    editActiveArea(state, "event", "first queued record"),
+    new Date("2026-08-18T01:01:00.000Z"),
+    nextId,
+  );
+  state = finishActive(
+    editActiveArea(state, "insight", "later valid record"),
+    new Date("2026-08-18T01:02:00.000Z"),
+    nextId,
+  );
+  return { state, nextId };
+}
+
+function errorResponse(
+  status: number,
+  code: string,
+  record?: JournalRecord,
+): Response {
+  return Response.json(
+    {
+      error: { code, message: code },
+      ...(record === undefined ? {} : { record }),
+    },
+    { status },
+  );
 }
 
 test("the editor field model exposes six controlled values in canonical symbol and aria-label order", () => {
@@ -540,4 +590,284 @@ test("an idempotent POST replay with older areas rebases then PATCHes the latest
   );
   assert.equal(controller.getState().active.revision, 1);
   assert.equal(controller.getState().active.areas.insight, "newer local text");
+});
+
+test("content above 5000 characters stays editable and durable but cannot sync or finalize until shortened", async () => {
+  let requestCount = 0;
+  const { controller, scheduler, storage } = makeController({
+    request: async (url, init) => {
+      requestCount += 1;
+      return acceptedResponse(url, init, 0);
+    },
+  });
+
+  controller.editActiveArea("unclassified", "x".repeat(5_001));
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(controller.getState().active.areas.unclassified.length, 5_001);
+  assert.equal(readStoredState(storage).active.areas.unclassified.length, 5_001);
+  assert.equal(requestCount, 0);
+  assert.equal(controller.finishActiveAndStartNew(), false);
+  assert.equal(controller.getState().pending.length, 0);
+  assert.deepEqual(
+    observableStatus(controller)?.issues.map(({ code }) => code),
+    ["CONTENT_TOO_LONG"],
+  );
+
+  controller.editActiveArea("unclassified", "now valid");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.equal(requestCount, 1);
+  assert.equal(controller.getState().active.revision, 0);
+  assert.deepEqual(observableStatus(controller)?.issues, []);
+});
+
+test("a 400-blocked queued record stays durable without starving the later valid record", async () => {
+  const { state, nextId } = stateWithTwoPending();
+  const blockedId = state.pending[0]!.id;
+  const laterId = state.pending[1]!.id;
+  const storage = new MemoryStorage(JSON.stringify(state));
+  const requestedIds: string[] = [];
+  const controller = createJournalSyncController({
+    storage,
+    idFactory: nextId,
+    now: () => new Date("2026-08-18T01:03:00.000Z"),
+    request: async (url, init) => {
+      const id = init.method === "POST"
+        ? (JSON.parse(String(init.body)) as { id: string }).id
+        : decodeURIComponent(url.split("/").at(-1)!);
+      requestedIds.push(id);
+      if (id === blockedId) {
+        return errorResponse(400, "INVALID_JOURNAL_RECORD");
+      }
+      return acceptedResponse(url, init, init.method === "POST" ? 0 : 1);
+    },
+  });
+
+  await controller.start();
+
+  assert.deepEqual(requestedIds, [blockedId, laterId, laterId]);
+  assert.deepEqual(controller.getState().pending.map(({ id }) => id), [blockedId]);
+  assert.equal(readStoredState(storage).pending[0]!.areas.event, "first queued record");
+  assert.deepEqual(
+    observableStatus(controller)?.issues.map(({ code, localId }) => ({ code, localId })),
+    [{ code: "INVALID_JOURNAL_RECORD", localId: blockedId }],
+  );
+});
+
+test("401 and AUTH_NOT_CONFIGURED 503 pause the whole queue until an explicit later trigger", async () => {
+  for (const authFailure of [
+    { status: 401, code: "UNAUTHORIZED" },
+    { status: 503, code: "AUTH_NOT_CONFIGURED" },
+  ]) {
+    const { state, nextId } = stateWithTwoPending();
+    const firstId = state.pending[0]!.id;
+    const storage = new MemoryStorage(JSON.stringify(state));
+    const requestedIds: string[] = [];
+    const controller = createJournalSyncController({
+      storage,
+      idFactory: nextId,
+      now: () => new Date("2026-08-18T01:03:00.000Z"),
+      request: async (_url, init) => {
+        requestedIds.push(
+          (JSON.parse(String(init.body)) as { id?: string }).id ?? "patch",
+        );
+        return errorResponse(authFailure.status, authFailure.code);
+      },
+    });
+
+    await controller.start();
+    assert.deepEqual(requestedIds, [firstId]);
+    assert.equal(observableStatus(controller)?.issues[0]?.code, authFailure.code);
+
+    await controller.retryPending();
+    assert.deepEqual(requestedIds, [firstId, firstId]);
+    controller.dispose();
+  }
+});
+
+test("PATCH 404 rebases the same local draft to POST without losing content", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (requests.length === 1) return acceptedResponse(url, init, 0);
+      if (requests.length === 2) return errorResponse(404, "NOT_FOUND");
+      return acceptedResponse(url, init, 0);
+    },
+  });
+
+  const originalId = controller.getState().active.id;
+  controller.editActiveArea("question", "created once");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  controller.editActiveArea("question", "recreate this latest text");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "PATCH", "POST"]);
+  assert.equal(
+    (JSON.parse(String(requests[2]!.init.body)) as { id: string }).id,
+    originalId,
+  );
+  assert.equal(
+    (JSON.parse(String(requests[2]!.init.body)) as { areas: { question: string } })
+      .areas.question,
+    "recreate this latest text",
+  );
+  assert.equal(controller.getState().active.revision, 0);
+});
+
+test("CONFLICT_ID_COLLISION rotates only the reservation then retries PATCH once on the same trigger", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (requests.length === 1) return acceptedResponse(url, init, 0);
+      if (requests.length === 2) {
+        return errorResponse(409, "CONFLICT_ID_COLLISION");
+      }
+      return acceptedResponse(url, init, 1);
+    },
+  });
+
+  const originalId = controller.getState().active.id;
+  const originalReservation = controller.getState().active.conflictRecordId;
+  controller.editActiveArea("event", "initial");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  controller.editActiveArea("event", "collision recovery");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  const firstPatch = JSON.parse(String(requests[1]!.init.body)) as {
+    conflictRecordId: string;
+  };
+  const retryPatch = JSON.parse(String(requests[2]!.init.body)) as {
+    conflictRecordId: string;
+  };
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "PATCH", "PATCH"]);
+  assert.equal(controller.getState().active.id, originalId);
+  assert.equal(firstPatch.conflictRecordId, originalReservation);
+  assert.notEqual(retryPatch.conflictRecordId, originalReservation);
+  assert.equal(controller.getState().active.revision, 1);
+});
+
+test("RECORD_LOCKED forks the edit to fresh undelivered identity and POSTs without modifying the delivered id", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (requests.length === 1) return acceptedResponse(url, init, 0);
+      if (requests.length === 2) {
+        return errorResponse(409, "RECORD_LOCKED", {
+          ...responseRecord(url, init, 1, "idle"),
+          deliveryState: "delivered",
+        });
+      }
+      return acceptedResponse(url, init, 0);
+    },
+  });
+
+  const deliveredId = controller.getState().active.id;
+  controller.editActiveArea("insight", "original");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  controller.editActiveArea("insight", "preserve as new record");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  const replacementBody = JSON.parse(String(requests[2]!.init.body)) as {
+    id: string;
+    areas: { insight: string };
+  };
+  assert.deepEqual(requests.map(({ init }) => init.method), ["POST", "PATCH", "POST"]);
+  assert.notEqual(replacementBody.id, deliveredId);
+  assert.equal(replacementBody.areas.insight, "preserve as new record");
+  assert.equal(controller.getState().active.id, replacementBody.id);
+  assert.equal(controller.getState().active.revision, 0);
+  assert.equal(observableStatus(controller)?.issues[0]?.code, "RECORD_LOCKED");
+});
+
+test("an accepted conflict applies the conflict id and rotates its next reservation", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      if (requests.length === 1) return acceptedResponse(url, init, 0);
+
+      const body = JSON.parse(String(init.body)) as { conflictRecordId: string };
+      const sourceId = decodeURIComponent(url.split("/").at(-1)!);
+      const conflictRecord = {
+        ...responseRecord(url, init, 0, "active"),
+        id: body.conflictRecordId,
+        conflictOf: sourceId,
+      };
+      const current = {
+        ...responseRecord(url, init, 1, "active"),
+        areas: { ...emptyJournalAreas(), insight: "other device won" },
+      };
+      return Response.json({ kind: "conflict", record: conflictRecord, current });
+    },
+  });
+
+  const sourceId = controller.getState().active.id;
+  const conflictId = controller.getState().active.conflictRecordId;
+  controller.editActiveArea("insight", "source");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  controller.editActiveArea("insight", "stale local edit");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  assert.notEqual(conflictId, sourceId);
+  assert.equal(controller.getState().active.id, conflictId);
+  assert.equal(controller.getState().active.revision, 0);
+  assert.equal(controller.getState().active.areas.insight, "stale local edit");
+  assert.notEqual(controller.getState().active.conflictRecordId, conflictId);
+  assert.notEqual(controller.getState().active.conflictRecordId, sourceId);
+});
+
+test("mismatched PATCH ids revisions and areas retain local state until a later valid acknowledgement", async () => {
+  let patchAttempt = 0;
+  const { controller, scheduler } = makeController({
+    request: async (url, init) => {
+      if (init.method === "POST") return acceptedResponse(url, init, 0);
+      patchAttempt += 1;
+      const valid = responseRecord(url, init, 1, "active");
+      if (patchAttempt === 1) {
+        return Response.json({ kind: "updated", record: { ...valid, id: idFactory(90)() } });
+      }
+      if (patchAttempt === 2) {
+        return Response.json({ kind: "updated", record: { ...valid, revision: 9 } });
+      }
+      if (patchAttempt === 3) {
+        return Response.json({
+          kind: "updated",
+          record: { ...valid, areas: { ...valid.areas, feeling: "wrong" } },
+        });
+      }
+      return Response.json({ kind: "updated", record: valid });
+    },
+  });
+
+  controller.editActiveArea("feeling", "initial");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+  controller.editActiveArea("feeling", "must remain local");
+  scheduler.advance(1_500);
+  await nextEventLoopTurn();
+
+  for (let expectedAttempt = 1; expectedAttempt <= 3; expectedAttempt += 1) {
+    assert.equal(patchAttempt, expectedAttempt);
+    assert.equal(controller.getState().active.revision, 0);
+    assert.equal(controller.getState().active.areas.feeling, "must remain local");
+    await controller.retryPending();
+  }
+
+  assert.equal(patchAttempt, 4);
+  assert.equal(controller.getState().active.revision, 1);
+  assert.equal(controller.getState().active.areas.feeling, "must remain local");
 });
