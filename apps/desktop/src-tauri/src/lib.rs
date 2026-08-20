@@ -2,6 +2,7 @@ mod config;
 mod journal;
 mod processor;
 mod worker;
+mod window_position;
 
 use serde::Serialize;
 use std::{
@@ -177,6 +178,7 @@ fn show_window(app: &AppHandle, label: &str) {
 }
 
 fn show_capture_window(app: &AppHandle) {
+    window_position::restore(app);
     let _ = app.emit_to("capture", "open-quick-capture", ());
     show_window(app, "capture");
 }
@@ -413,9 +415,15 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let WindowEvent::CloseRequested { api, .. } = event {
-                api.prevent_close();
-                let _ = window.hide();
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    let _ = window.hide();
+                }
+                WindowEvent::Moved(position) if window.label() == "capture" => {
+                    window_position::save(window.app_handle(), *position);
+                }
+                _ => {}
             }
         })
         .invoke_handler(tauri::generate_handler![

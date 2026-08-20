@@ -212,6 +212,35 @@ button:disabled {
   padding: 9px 12px;
 }
 
+.colorSettings {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  align-items: end;
+  gap: 12px;
+  padding: 0 14px 14px;
+}
+
+.colorSettings label {
+  display: grid;
+  gap: 5px;
+  color: #4b5b51;
+  font-size: 0.82rem;
+  font-weight: 650;
+}
+
+.colorSettings input[type="color"] {
+  width: 100%;
+  height: 38px;
+  border: 1px solid #b9c9bc;
+  border-radius: 8px;
+  padding: 3px;
+  background: #ffffff;
+}
+
+.colorSettings button {
+  padding: 9px 12px;
+}
+
 .quickCaptureShell {
   padding: 24px;
   background:
@@ -305,29 +334,35 @@ button:disabled {
 .desktopJournal {
   --paper: #ffffff;
   --ink: #080808;
-  --line: #d7d7d7;
-  --soft: #f1f1f1;
+  --line: color-mix(in srgb, var(--ink) 18%, var(--paper));
+  --soft: color-mix(in srgb, var(--ink) 8%, var(--paper));
   position: relative;
   width: 100%;
   height: 100vh;
   overflow: hidden;
   background: var(--paper);
   color: var(--ink);
+  transition: background-color 140ms ease, color 140ms ease;
 }
 
 .dragStrip {
-  height: 12px;
-  border-bottom: 1px solid var(--line);
+  height: 14px;
   cursor: move;
 }
 
-.areaEditor,
-.recordEditor {
-  height: calc(100vh - 12px);
-  display: grid;
-  grid-template-rows: repeat(6, minmax(0, 1fr));
+.areaEditor {
+  height: calc(100vh - 14px);
+  overflow-y: auto;
   padding: 4px 14px 12px;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+  scroll-behavior: smooth;
   transition: opacity 100ms ease;
+}
+
+.areaEditor::-webkit-scrollbar,
+.recordStream::-webkit-scrollbar {
+  display: none;
 }
 
 .areaEditor.quieted {
@@ -335,10 +370,10 @@ button:disabled {
 }
 
 .journalArea {
-  min-height: 0;
+  min-height: 72px;
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
-  align-items: stretch;
+  align-items: start;
   border-bottom: 1px solid var(--line);
 }
 
@@ -356,7 +391,7 @@ button:disabled {
 .journalArea textarea {
   min-width: 0;
   width: 100%;
-  height: 100%;
+  min-height: 72px;
   resize: none;
   border: 0;
   outline: 0;
@@ -364,7 +399,9 @@ button:disabled {
   background: transparent;
   color: var(--ink);
   line-height: 1.38;
-  scrollbar-width: thin;
+  overflow: hidden;
+  scrollbar-width: none;
+  transition: height 90ms ease;
 }
 
 .journalArea textarea:focus {
@@ -381,7 +418,7 @@ button:disabled {
   display: grid;
   place-content: center;
   gap: 12px;
-  background: rgba(255, 255, 255, 0.62);
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
   text-align: center;
 }
 
@@ -455,8 +492,10 @@ button:disabled {
 }
 
 .recordStream {
-  height: calc(100vh - 54px);
+  height: calc(100vh - 56px);
   overflow-y: auto;
+  scrollbar-width: none;
+  scroll-behavior: smooth;
 }
 
 .recordRow {
@@ -507,21 +546,37 @@ button:disabled {
   position: relative;
 }
 
+.captureExtensionPage {
+  height: calc(100vh - 14px);
+  outline: none;
+  background: var(--paper);
+}
+
+.viewEnter {
+  animation: view-enter 120ms ease-out both;
+}
+
+@keyframes view-enter {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 .lockMark {
   position: absolute;
   right: 10px;
   bottom: 8px;
 }
 
-@media (prefers-color-scheme: dark) {
-  .desktopJournal {
-    --paper: #050505;
-    --ink: #f7f7f7;
-    --line: #343434;
-    --soft: #181818;
-  }
-
-  .microPrompt {
-    background: rgba(0, 0, 0, 0.68);
+@media (prefers-reduced-motion: reduce) {
+  .viewEnter,
+  .journalArea textarea {
+    animation: none;
+    transition: none;
   }
 }

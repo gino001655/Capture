@@ -1,6 +1,13 @@
 import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import {
+  DEFAULT_CAPTURE_THEME,
+  readCaptureTheme,
+  writeCaptureTheme,
+  type CaptureTheme,
+} from "./capture-theme";
 import { DesktopJournal } from "./DesktopJournal";
 import "./App.css";
 
@@ -47,6 +54,7 @@ function WorkerView() {
   const [deviceToken, setDeviceToken] = useState("");
   const [savingConnection, setSavingConnection] = useState(false);
   const [settingError, setSettingError] = useState<string | null>(null);
+  const [captureTheme, setCaptureTheme] = useState<CaptureTheme>(readCaptureTheme);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -138,6 +146,16 @@ function WorkerView() {
     }
   }
 
+  function updateCaptureTheme(theme: CaptureTheme) {
+    setCaptureTheme(theme);
+    try {
+      writeCaptureTheme(theme);
+      void emitTo("capture", "capture-theme-changed", theme);
+    } catch {
+      setSettingError("Could not save Quick Capture colors.");
+    }
+  }
+
   return (
     <main className="workerShell">
       <header>
@@ -207,6 +225,41 @@ function WorkerView() {
             </button>
           </div>
         </form>
+      </details>
+
+      <details className="connectionSettings appearanceSettings">
+        <summary>Quick Capture colors</summary>
+        <div className="colorSettings">
+          <label>
+            Background
+            <input
+              type="color"
+              value={captureTheme.paper}
+              onChange={(event) => updateCaptureTheme({
+                ...captureTheme,
+                paper: event.target.value,
+              })}
+            />
+          </label>
+          <label>
+            Text
+            <input
+              type="color"
+              value={captureTheme.ink}
+              onChange={(event) => updateCaptureTheme({
+                ...captureTheme,
+                ink: event.target.value,
+              })}
+            />
+          </label>
+          <button
+            type="button"
+            className="secondaryButton"
+            onClick={() => updateCaptureTheme(DEFAULT_CAPTURE_THEME)}
+          >
+            Reset
+          </button>
+        </div>
       </details>
 
       {settingError ? <p className="desktopError">{settingError}</p> : null}

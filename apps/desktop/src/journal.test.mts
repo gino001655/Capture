@@ -8,6 +8,7 @@ import {
   editActiveArea,
   finishActive,
   hasJournalContent,
+  refreshBlankDraftDate,
   quickCaptureKeyAction,
   shiftJournalDate,
 } from "./journal.ts";
@@ -73,4 +74,20 @@ test("blank Quick Capture exits directly while content asks before leaving", () 
   assert.equal(quickCaptureKeyAction(false, "none", "ArrowLeft", false, true), "open-full");
   assert.equal(quickCaptureKeyAction(true, "none", "Escape", false, false), "confirm-hide");
   assert.equal(quickCaptureKeyAction(true, "none", "ArrowLeft", false, true), "confirm-full");
+  assert.equal(quickCaptureKeyAction(false, "none", "ArrowRight", false, true), "open-special");
+  assert.equal(quickCaptureKeyAction(true, "none", "ArrowRight", false, true), "confirm-special");
+});
+
+test("an old blank draft follows today's Taipei date without moving written content", () => {
+  let index = 0;
+  const idFactory = () => ids[index++]!;
+  const oldBlank = createLocalState(new Date("2026-08-18T03:00:00Z"), idFactory);
+  const refreshed = refreshBlankDraftDate(oldBlank, new Date("2026-08-20T03:00:00Z"));
+  assert.equal(refreshed.active.journalDate, "2026-08-20");
+
+  const written = editActiveArea(oldBlank, "event", "keep the assigned date");
+  assert.equal(
+    refreshBlankDraftDate(written, new Date("2026-08-20T03:00:00Z")).active.journalDate,
+    "2026-08-18",
+  );
 });

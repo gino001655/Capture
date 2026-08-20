@@ -1,4 +1,5 @@
 import {
+  type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
   useEffect,
@@ -19,6 +20,7 @@ import {
   hasJournalContent,
   quickCaptureKeyAction,
   readLocalState,
+  refreshBlankDraftDate,
   shiftJournalDate,
   type JournalAreaKey,
   type JournalAreas,
@@ -27,9 +29,14 @@ import {
   type LocalJournalDraft,
   type QuickCaptureConfirmation,
 } from "./journal";
+import { readCaptureTheme, type CaptureTheme } from "./capture-theme";
+import { SPECIAL_CAPTURE_PAGES } from "./capture-pages/registry";
 
-type View = "quick" | "list" | "record";
+type View = "quick" | "list" | "record" | "special";
 type ConfirmationChoice = "cancel" | "confirm";
+type RecordConfirmation = "none" | "save" | "discard";
+
+const RECORD_CACHE_STORAGE_KEY = "capture.desktop.record-cache.v1";
 
 function idFactory() {
   return crypto.randomUUID();
@@ -42,7 +49,35 @@ function initialState(): JournalLocalState {
   } catch {
     // The in-memory draft still works if WebView storage is unavailable.
   }
-  return readLocalState(raw, new Date(), idFactory);
+  return refreshBlankDraftDate(readLocalState(raw, new Date(), idFactory), new Date());
+}
+
+function readRecordCache(): Record<string, JournalRecord[]> {
+  try {
+    const parsed: unknown = JSON.parse(
+      localStorage.getItem(RECORD_CACHE_STORAGE_KEY) ?? "{}",
+    );
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      return parsed as Record<string, JournalRecord[]>;
+    }
+  } catch {
+    // Empty cache still gives correct Cloud-backed behavior.
+  }
+  return {};
+}
+
+function persistRecordCache(cache: Record<string, JournalRecord[]>) {
+  try {
+    localStorage.setItem(RECORD_CACHE_STORAGE_KEY, JSON.stringify(cache));
+  } catch {
+    // Cache is an acceleration layer, not authoritative storage.
+  }
+}
+
+function autosizeTextarea(textarea: HTMLTextAreaElement | null) {
+  if (!textarea) return;
+  textarea.style.height = "0px";
+  textarea.style.height = `${Math.max(54, textarea.scrollHeight)}px`;
 }
 
 function persistState(state: JournalLocalState) {
@@ -77,15 +112,32 @@ export function DesktopJournal() {
   const [confirmation, setConfirmation] = useState<QuickCaptureConfirmation>("none");
   const [confirmationChoice, setConfirmationChoice] = useState<ConfirmationChoice>("confirm");
   const [selectedDate, setSelectedDate] = useState(journalState.active.journalDate);
-  const [records, setRecords] = useState<JournalRecord[]>([]);
+  const [recordsByDate, setRecordsByDate] = useState<Record<string, JournalRecord[]>>(readRecordCache);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [editingRecord, setEditingRecord] = useState<JournalRecord | null>(null);
+  const [recordConfirmation, setRecordConfirmation] = useState<RecordConfirmation>("none");
+  const [recordConfirmationChoice, setRecordConfirmationChoice] = useState<ConfirmationChoice>("confirm");
+  const [specialIndex, setSpecialIndex] = useState(0);
+  const [captureTheme, setCaptureTheme] = useState<CaptureTheme>(readCaptureTheme);
   const [syncError, setSyncError] = useState<string | null>(null);
   const fieldRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
   const listRef = useRef<HTMLElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const syncingRef = useRef(false);
   const rerunRef = useRef(false);
+  const records = recordsByDate[selectedDate] ?? [];
+
+  function focusArea(index: number) {
+    const field = fieldRefs.current[index];
+    field?.focus();
+    field?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function resizeAllFields() {
+    window.requestAnimationFrame(() => {
+      fieldRefs.current.forEach(autosizeTextarea);
+    });
+  }
 
   const commitState = useCallback((next: JournalLocalState) => {
     stateRef.current = next;
@@ -186,49 +238,96 @@ export function DesktopJournal() {
     timerRef.current = window.setTimeout(() => void syncNow(), AUTOSAVE_DELAY_MS);
   }, [syncNow]);
 
-  const loadRecords = useCallback(async (date: string) => {
+  const loadRecords = useCallback(async (date: string, resetSelection = false) => {
     try {
       const next = await invoke<JournalRecord[]>("list_journal_records", {
         journalDate: date,
       });
-      setRecords(next);
-      setSelectedIndex(0);
+      setRecordsByDate((current) => {
+        const updated = { ...current, [date]: next };
+        persistRecordCache(updated);
+        return updated;
+      });
+      if (resetSelection) setSelectedIndex(0);
       setSyncError(null);
     } catch (error) {
       setSyncError(errorMessage(error));
     }
   }, []);
 
+  const prefetchDateNeighborhood = useCallback((date: string) => {
+    void loadRecords(date);
+    void loadRecords(shiftJournalDate(date, -1));
+    void loadRecords(shiftJournalDate(date, 1));
+  }, [loadRecords]);
+
   const openFullJournal = useCallback(() => {
     const date = stateRef.current.active.journalDate;
     setConfirmation("none");
     setSelectedDate(date);
     setView("list");
-    void loadRecords(date);
+    prefetchDateNeighborhood(date);
     window.setTimeout(() => listRef.current?.focus(), 0);
-  }, [loadRecords]);
+  }, [prefetchDateNeighborhood]);
+
+  const showQuickCapture = useCallback(() => {
+    const refreshed = refreshBlankDraftDate(stateRef.current, new Date());
+    if (refreshed !== stateRef.current) commitState(refreshed);
+    setConfirmation("none");
+    setView("quick");
+    window.setTimeout(() => focusArea(0), 0);
+  }, [commitState]);
+
+  function showSpecialPage(index: number) {
+    if (SPECIAL_CAPTURE_PAGES.length === 0) return;
+    setSpecialIndex(Math.max(0, Math.min(SPECIAL_CAPTURE_PAGES.length - 1, index)));
+    setConfirmation("none");
+    setView("special");
+    window.setTimeout(() => {
+      document.querySelector<HTMLElement>(".captureExtensionPage")?.focus();
+    }, 0);
+  }
+
+  function requestModeChange(delta: -1 | 1) {
+    if (view === "list") {
+      if (delta === 1) showQuickCapture();
+      return;
+    }
+    if (view === "quick") {
+      if (delta === -1) openFullJournal();
+      else showSpecialPage(0);
+      return;
+    }
+    if (view === "special") {
+      if (delta === -1 && specialIndex === 0) showQuickCapture();
+      else showSpecialPage(specialIndex + delta);
+    }
+  }
 
   useEffect(() => {
     const focusQuick = () => {
-      if (view === "quick") window.setTimeout(() => fieldRefs.current[0]?.focus(), 0);
+      if (view === "quick") window.setTimeout(() => focusArea(0), 0);
     };
     window.addEventListener("focus", focusQuick);
     const unlistenPromise = listen("open-quick-capture", () => {
-      setView("quick");
-      setConfirmation("none");
-      window.setTimeout(() => fieldRefs.current[0]?.focus(), 0);
+      showQuickCapture();
+    });
+    const themeListener = listen<CaptureTheme>("capture-theme-changed", (event) => {
+      setCaptureTheme(event.payload);
     });
     const online = () => void syncNow();
     window.addEventListener("online", online);
     focusQuick();
     void syncNow();
+    resizeAllFields();
     return () => {
       window.removeEventListener("focus", focusQuick);
       window.removeEventListener("online", online);
       void unlistenPromise.then((unlisten) => unlisten());
+      void themeListener.then((unlisten) => unlisten());
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
     };
-  }, [syncNow, view]);
+  }, [showQuickCapture, syncNow, view]);
 
   const listEntries = useMemo(() => {
     const active = journalState.active;
@@ -269,10 +368,11 @@ export function DesktopJournal() {
     setConfirmation("none");
     setConfirmationChoice("confirm");
     void syncNow();
-    window.setTimeout(() => fieldRefs.current[0]?.focus(), 0);
+    resizeAllFields();
+    window.setTimeout(() => focusArea(0), 0);
   }
 
-  async function discardCurrent(destination: "hide" | "full") {
+  async function discardCurrent(destination: "hide" | "full" | "special") {
     await syncNow();
     const current = stateRef.current;
     const active = current.active;
@@ -290,7 +390,8 @@ export function DesktopJournal() {
       commitState(finishActive(blanked, new Date(), idFactory));
       setConfirmation("none");
       if (destination === "hide") await invoke("hide_current_window");
-      else openFullJournal();
+      else if (destination === "full") openFullJournal();
+      else showSpecialPage(0);
     } catch (error) {
       setSyncError(errorMessage(error));
       setConfirmation("none");
@@ -321,7 +422,7 @@ export function DesktopJournal() {
     if (confirmation === "none" && event.key === "ArrowUp" && event.currentTarget.selectionStart === 0) {
       if (index > 0) {
         event.preventDefault();
-        fieldRefs.current[index - 1]?.focus();
+        focusArea(index - 1);
       }
       return;
     }
@@ -332,7 +433,7 @@ export function DesktopJournal() {
     ) {
       if (index < JOURNAL_AREA_KEYS.length - 1) {
         event.preventDefault();
-        fieldRefs.current[index + 1]?.focus();
+        focusArea(index + 1);
       }
       return;
     }
@@ -349,6 +450,7 @@ export function DesktopJournal() {
 
     if (action === "hide") void invoke("hide_current_window");
     else if (action === "open-full") openFullJournal();
+    else if (action === "open-special") showSpecialPage(0);
     else if (action === "confirm-complete") {
       setConfirmation("complete");
       setConfirmationChoice("confirm");
@@ -358,23 +460,33 @@ export function DesktopJournal() {
     } else if (action === "confirm-full") {
       setConfirmation("full");
       setConfirmationChoice("confirm");
+    } else if (action === "confirm-special") {
+      setConfirmation("special");
+      setConfirmationChoice("confirm");
     } else if (action === "cancel" || confirmationChoice === "cancel") {
       setConfirmation("none");
     } else if (action === "finish") finishCurrent();
     else if (action === "discard-hide") void discardCurrent("hide");
     else if (action === "discard-full") void discardCurrent("full");
+    else if (action === "discard-special") void discardCurrent("special");
   }
 
   function shiftDate(delta: number) {
     const next = shiftJournalDate(selectedDate, delta);
     setSelectedDate(next);
-    void loadRecords(next);
+    setSelectedIndex(0);
+    prefetchDateNeighborhood(next);
   }
 
   function handleListKey(event: ReactKeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
       void invoke("hide_current_window");
+    } else if (event.ctrlKey && event.key === "ArrowRight") {
+      event.preventDefault();
+      showQuickCapture();
+    } else if (event.ctrlKey && event.key === "ArrowLeft") {
+      event.preventDefault();
     } else if (event.key === "ArrowLeft") {
       event.preventDefault();
       shiftDate(-1);
@@ -389,51 +501,150 @@ export function DesktopJournal() {
       setSelectedIndex((index) => Math.min(listEntries.length - 1, index + 1));
     } else if (event.key === "Enter" && listEntries[selectedIndex]) {
       event.preventDefault();
-      setEditingRecord({ ...listEntries[selectedIndex]!, areas: { ...listEntries[selectedIndex]!.areas } });
-      setView("record");
+      openRecord(listEntries[selectedIndex]!);
     }
   }
 
-  async function closeRecordEditor() {
+  function openRecord(record: JournalRecord) {
+    setEditingRecord({ ...record, areas: { ...record.areas } });
+    setRecordConfirmation("none");
+    setRecordConfirmationChoice("confirm");
+    setView("record");
+  }
+
+  function returnToList() {
+    setEditingRecord(null);
+    setRecordConfirmation("none");
+    setView("list");
+    window.setTimeout(() => listRef.current?.focus(), 0);
+  }
+
+  function replaceCachedRecord(record: JournalRecord) {
+    setRecordsByDate((current) => {
+      const recordsForDate = current[record.journalDate] ?? [];
+      const updated = {
+        ...current,
+        [record.journalDate]: recordsForDate.map((item) =>
+          item.id === record.id ? record : item,
+        ),
+      };
+      persistRecordCache(updated);
+      return updated;
+    });
+  }
+
+  function saveRecordEditor() {
     const record = editingRecord;
     if (!record) return;
-    try {
-      if (record.deliveryState === "undelivered") {
-        if (record.id === stateRef.current.active.id) {
-          const current = stateRef.current;
-          const updated = {
-            ...current,
-            active: { ...current.active, areas: record.areas, editingState: "idle" as const },
-          };
-          commitState(finishActive(updated, new Date(), idFactory));
-          void syncNow();
-        } else {
-          await invoke<JournalRecord>("update_journal_record", {
-            id: record.id,
-            input: {
-              deviceId: record.deviceId,
-              journalDate: record.journalDate,
-              areas: record.areas,
-              editingState: "idle",
-              expectedRevision: record.revision,
-              conflictRecordId: crypto.randomUUID(),
-            },
-          });
-        }
+    returnToList();
+    if (record.deliveryState === "delivered") return;
+
+    replaceCachedRecord(record);
+    if (record.id === stateRef.current.active.id) {
+      const current = stateRef.current;
+      const updated = {
+        ...current,
+        active: { ...current.active, areas: record.areas, editingState: "idle" as const },
+      };
+      commitState(finishActive(updated, new Date(), idFactory));
+      void syncNow();
+      return;
+    }
+
+    void invoke<JournalRecord>("update_journal_record", {
+      id: record.id,
+      input: {
+        deviceId: record.deviceId,
+        journalDate: record.journalDate,
+        areas: record.areas,
+        editingState: "idle",
+        expectedRevision: record.revision,
+        conflictRecordId: crypto.randomUUID(),
+      },
+    })
+      .then((saved) => {
+        replaceCachedRecord(saved);
+        void loadRecords(selectedDate);
+      })
+      .catch((error) => setSyncError(errorMessage(error)));
+  }
+
+  function handleRecordKey(event: ReactKeyboardEvent<HTMLElement>) {
+    const record = editingRecord;
+    if (!record) return;
+    if (record.deliveryState === "delivered") {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        returnToList();
       }
-      setEditingRecord(null);
-      setView("list");
-      await loadRecords(selectedDate);
-      window.setTimeout(() => listRef.current?.focus(), 0);
-    } catch (error) {
-      setSyncError(errorMessage(error));
+      return;
+    }
+
+    if (
+      recordConfirmation !== "none" &&
+      event.key.length === 1 &&
+      !event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey
+    ) {
+      setRecordConfirmation("none");
+      return;
+    }
+    if (
+      recordConfirmation !== "none" &&
+      (event.key === "ArrowLeft" || event.key === "ArrowRight")
+    ) {
+      event.preventDefault();
+      setRecordConfirmationChoice((choice) =>
+        choice === "confirm" ? "cancel" : "confirm",
+      );
+      return;
+    }
+    if (recordConfirmation !== "none") {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setRecordConfirmation("none");
+      } else if (event.key === "Enter") {
+        event.preventDefault();
+        if (recordConfirmationChoice === "cancel") setRecordConfirmation("none");
+        else if (recordConfirmation === "save") saveRecordEditor();
+        else returnToList();
+      }
+      return;
+    }
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      setRecordConfirmation("save");
+      setRecordConfirmationChoice("confirm");
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      setRecordConfirmation("discard");
+      setRecordConfirmationChoice("confirm");
+    }
+  }
+
+  const themeStyle = {
+    "--paper": captureTheme.paper,
+    "--ink": captureTheme.ink,
+  } as CSSProperties;
+
+  if (view === "special") {
+    const definition = SPECIAL_CAPTURE_PAGES[specialIndex];
+    if (definition) {
+      const Page = definition.Component;
+      return (
+        <div className="desktopJournal viewEnter" style={themeStyle} key={`special-${definition.id}`}>
+          <div className="dragStrip" data-tauri-drag-region />
+          <Page requestModeChange={requestModeChange} />
+        </div>
+      );
     }
   }
 
   if (view === "quick") {
     const prompt = confirmation === "complete" ? "完成？" : "不保存？";
     return (
-      <main className="desktopJournal quickJournal">
+      <main className="desktopJournal quickJournal viewEnter" style={themeStyle} key="quick">
         <div className="dragStrip" data-tauri-drag-region />
         <section className={confirmation === "none" ? "areaEditor" : "areaEditor quieted"}>
           {JOURNAL_AREA_KEYS.map((key, index) => (
@@ -441,9 +652,15 @@ export function DesktopJournal() {
               <span aria-hidden="true">{AREA_SYMBOLS[key]}</span>
               <span className="srOnly">{key}</span>
               <textarea
-                ref={(node) => { fieldRefs.current[index] = node; }}
+                ref={(node) => {
+                  fieldRefs.current[index] = node;
+                  autosizeTextarea(node);
+                }}
                 value={journalState.active.areas[key]}
-                onChange={(event) => editArea(key, event.target.value)}
+                onChange={(event) => {
+                  editArea(key, event.target.value);
+                  autosizeTextarea(event.currentTarget);
+                }}
                 onKeyDown={(event) => handleQuickKey(event, index)}
                 rows={2}
                 maxLength={5000}
@@ -459,7 +676,15 @@ export function DesktopJournal() {
               <button className={confirmationChoice === "cancel" ? "selected" : ""} onClick={() => setConfirmation("none")}>取消</button>
               <button
                 className={confirmationChoice === "confirm" ? "selected" : ""}
-                onClick={() => confirmation === "complete" ? finishCurrent() : void discardCurrent(confirmation === "hide" ? "hide" : "full")}
+                onClick={() => confirmation === "complete"
+                  ? finishCurrent()
+                  : void discardCurrent(
+                      confirmation === "hide"
+                        ? "hide"
+                        : confirmation === "full"
+                          ? "full"
+                          : "special",
+                    )}
               >
                 {confirmation === "complete" ? "完成" : "離開"}
               </button>
@@ -475,31 +700,48 @@ export function DesktopJournal() {
     const delivered = editingRecord.deliveryState === "delivered";
     return (
       <main
-        className="desktopJournal recordEditor"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            void closeRecordEditor();
-          }
-        }}
+        className="desktopJournal recordEditor viewEnter"
+        key="record"
+        style={themeStyle}
+        onKeyDown={handleRecordKey}
       >
         <div className="dragStrip" data-tauri-drag-region />
-        {JOURNAL_AREA_KEYS.filter((key) => !delivered || editingRecord.areas[key].trim()).map((key) => (
-          <label className="journalArea" key={key}>
-            <span aria-hidden="true">{AREA_SYMBOLS[key]}</span>
-            <span className="srOnly">{key}</span>
-            <textarea
-              value={editingRecord.areas[key]}
-              onChange={(event) => setEditingRecord({
-                ...editingRecord,
-                areas: { ...editingRecord.areas, [key]: event.target.value },
-              })}
-              rows={2}
-              disabled={delivered}
-              aria-label={key}
-            />
-          </label>
-        ))}
+        <section className={recordConfirmation === "none" ? "areaEditor" : "areaEditor quieted"}>
+          {JOURNAL_AREA_KEYS.filter((key) => !delivered || editingRecord.areas[key].trim()).map((key) => (
+            <label className="journalArea" key={key}>
+              <span aria-hidden="true">{AREA_SYMBOLS[key]}</span>
+              <span className="srOnly">{key}</span>
+              <textarea
+                ref={autosizeTextarea}
+                value={editingRecord.areas[key]}
+                onChange={(event) => {
+                  setEditingRecord({
+                    ...editingRecord,
+                    areas: { ...editingRecord.areas, [key]: event.target.value },
+                  });
+                  autosizeTextarea(event.currentTarget);
+                }}
+                rows={2}
+                disabled={delivered}
+                aria-label={key}
+              />
+            </label>
+          ))}
+        </section>
+        {recordConfirmation !== "none" ? (
+          <div className="microPrompt" role="dialog" aria-label={recordConfirmation === "save" ? "保存？" : "不保存？"}>
+            <p>{recordConfirmation === "save" ? "保存？" : "不保存？"}</p>
+            <div>
+              <button className={recordConfirmationChoice === "cancel" ? "selected" : ""} onClick={() => setRecordConfirmation("none")}>取消</button>
+              <button
+                className={recordConfirmationChoice === "confirm" ? "selected" : ""}
+                onClick={recordConfirmation === "save" ? saveRecordEditor : returnToList}
+              >
+                {recordConfirmation === "save" ? "保存" : "離開"}
+              </button>
+            </div>
+          </div>
+        ) : null}
         {delivered ? <span className="lockMark" aria-label="已送出">◇</span> : null}
         {syncError ? <p className="journalError" role="alert">{syncError}</p> : null}
       </main>
@@ -507,7 +749,7 @@ export function DesktopJournal() {
   }
 
   return (
-    <main className="desktopJournal fullJournal" ref={listRef} tabIndex={0} onKeyDown={handleListKey}>
+    <main className="desktopJournal fullJournal viewEnter" key="list" style={themeStyle} ref={listRef} tabIndex={0} onKeyDown={handleListKey}>
       <div className="dragStrip" data-tauri-drag-region />
       <nav className="journalToolbar" aria-label="Journal controls">
         <button aria-label="設定" onClick={() => void invoke("show_worker_window")}>⚙</button>
@@ -519,7 +761,8 @@ export function DesktopJournal() {
             value={selectedDate}
             onChange={(event) => {
               setSelectedDate(event.target.value);
-              void loadRecords(event.target.value);
+              setSelectedIndex(0);
+              prefetchDateNeighborhood(event.target.value);
             }}
             aria-label="選擇日期"
           />
@@ -533,10 +776,7 @@ export function DesktopJournal() {
             key={record.id}
             className={index === selectedIndex ? "recordRow selected" : "recordRow"}
             onClick={() => setSelectedIndex(index)}
-            onDoubleClick={() => {
-              setEditingRecord({ ...record, areas: { ...record.areas } });
-              setView("record");
-            }}
+            onDoubleClick={() => openRecord(record)}
           >
             {previewLines(record.areas).map((line) => (
               <span className="previewLine" key={line.key}>
