@@ -2,7 +2,7 @@
 
 ## Status
 
-The Web/API is deployed to Vercel and verified with Google authentication, MongoDB Atlas persistence, and the local Desktop worker. The fake processor remains in place; Codex and destination integrations are planned next.
+The Web/API is deployed to Vercel and verified with Google authentication, MongoDB Atlas persistence, and the local Desktop worker. The worker-to-Codex-to-Heptabase path is connected and verified against production. Its first version has no durable retry or failed-job state.
 
 ## System context
 
@@ -12,9 +12,10 @@ flowchart LR
     W --> A["Cloud API in Next.js"]
     D["Tauri Desktop Worker"] --> A
     A --> M["MongoDB Atlas"]
-    D --> P["Local Processor"]
-    P --> D
-    D -. "later" .-> H["Heptabase"]
+    D --> C["Local Codex CLI"]
+    C --> D
+    D --> H["Heptabase CLI / Desktop"]
+    H --> D
     D -. "later" .-> K["Anki"]
 ```
 
@@ -62,9 +63,13 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 
 ### Processor
 
-- Begin as a deterministic fake processor to verify the job lifecycle.
-- Later call the local Codex CLI and return structured output.
+- Invoke `codex exec` in ephemeral, read-only mode and provide capture text through standard input rather than a shell argument.
+- Write the final Markdown response to a temporary file, then ask the official Heptabase CLI to create a note from that file.
+- Require the user-installed Codex CLI to be signed in and Heptabase CLI access to be enabled.
+- Run the official Heptabase `start` command before writing, launching Heptabase Desktop when necessary and waiting up to 60 seconds for its local CLI server.
+- Return the created Heptabase card ID and title as the Cloud processing result.
 - Not own persistence, retry policy, or authoritative job state.
+- Currently leave a claimed job in `processing` if Codex or Heptabase fails; retry and explicit failure states are later reliability work.
 
 ## Desktop polling behavior
 
@@ -80,6 +85,7 @@ All triggers share one check operation and avoid overlapping polls. The applicat
 ## Trust boundaries
 
 - Browser and Desktop inputs are untrusted and require server-side validation.
+- Capture text is passed to Codex through standard input and is never interpolated into a shell command.
 - Only the Cloud API may connect to MongoDB Atlas.
 - The public deployment must be authenticated before it is treated as usable production.
 - The Web uses a stateless Better Auth session created through Google OAuth and authorizes only the configured email address.

@@ -1,10 +1,11 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
+import { DesktopJournal } from "./DesktopJournal";
 import "./App.css";
 
-const CAPTURE_SHORTCUT = "Ctrl + Alt + C";
-const WORKER_SHORTCUT = "Ctrl + Alt + W";
+const CAPTURE_SHORTCUT = "Ctrl + Numpad 5";
+const WORKER_SHORTCUT = "Ctrl + NumLock";
 
 type WorkerSnapshot = {
   kind: "ready" | "checking" | "idle" | "processed" | "paused" | "error";
@@ -13,12 +14,6 @@ type WorkerSnapshot = {
   lastCheckedAt: number | null;
   paused: boolean;
   checking: boolean;
-};
-
-type CreatedCapture = {
-  id: string;
-  content: string;
-  status: string;
 };
 
 type ConnectionSettings = {
@@ -234,116 +229,6 @@ function WorkerView() {
   );
 }
 
-function CaptureView() {
-  const [content, setContent] = useState("");
-  const [state, setState] = useState<
-    | { kind: "ready" }
-    | { kind: "submitting" }
-    | { kind: "success"; capture: CreatedCapture }
-    | { kind: "error"; message: string }
-  >({ kind: "ready" });
-  const inputRef = useRef<HTMLTextAreaElement>(null);
-
-  useEffect(() => {
-    const focusInput = () => inputRef.current?.focus();
-    window.addEventListener("focus", focusInput);
-    window.setTimeout(focusInput, 0);
-
-    return () => window.removeEventListener("focus", focusInput);
-  }, []);
-
-  useEffect(() => {
-    const hideOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        void invoke("hide_current_window");
-      }
-    };
-
-    window.addEventListener("keydown", hideOnEscape);
-    return () => window.removeEventListener("keydown", hideOnEscape);
-  }, []);
-
-  async function submitCapture(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const trimmedContent = content.trim();
-
-    if (!trimmedContent) {
-      return;
-    }
-
-    setState({ kind: "submitting" });
-
-    try {
-      const capture = await invoke<CreatedCapture>("create_capture", {
-        content: trimmedContent,
-      });
-      setState({ kind: "success", capture });
-      setContent("");
-      window.setTimeout(() => {
-        setState({ kind: "ready" });
-        void invoke("hide_current_window");
-      }, 650);
-    } catch (error) {
-      setState({
-        kind: "error",
-        message: typeof error === "string" ? error : "Capture failed.",
-      });
-    }
-  }
-
-  return (
-    <main className="quickCaptureShell">
-      <header className="captureHeader">
-        <div>
-          <p className="eyebrow">{CAPTURE_SHORTCUT}</p>
-          <h1>Quick Capture</h1>
-        </div>
-        <button
-          type="button"
-          className="closeButton"
-          aria-label="Hide Quick Capture"
-          onClick={() => void invoke("hide_current_window")}
-        >
-          ×
-        </button>
-      </header>
-
-      <form onSubmit={submitCapture}>
-        <textarea
-          ref={inputRef}
-          value={content}
-          onChange={(event) => setContent(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault();
-              event.currentTarget.form?.requestSubmit();
-            }
-          }}
-          placeholder="Type a thought, task, link, or note..."
-          rows={5}
-          maxLength={10_000}
-          disabled={state.kind === "submitting"}
-        />
-        <div className="captureFooter">
-          <span>Enter to capture · Shift+Enter for a new line · Esc to hide</span>
-          <button type="submit" disabled={state.kind === "submitting" || !content.trim()}>
-            {state.kind === "submitting" ? "Sending..." : "Capture"}
-          </button>
-        </div>
-      </form>
-
-      {state.kind === "success" ? (
-        <p className="captureMessage successMessage">
-          Captured. The worker will process it in the background.
-        </p>
-      ) : null}
-      {state.kind === "error" ? (
-        <p className="captureMessage desktopError">{state.message}</p>
-      ) : null}
-    </main>
-  );
-}
-
 export default function App() {
-  return getCurrentWindow().label === "capture" ? <CaptureView /> : <WorkerView />;
+  return getCurrentWindow().label === "capture" ? <DesktopJournal /> : <WorkerView />;
 }

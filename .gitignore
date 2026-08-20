@@ -5,6 +5,7 @@
 
 # JavaScript dependencies and generated output
 node_modules/
+.pnpm-store/
 .next/
 *.tsbuildinfo
 dist/

@@ -1,4 +1,6 @@
 mod config;
+mod journal;
+mod processor;
 mod worker;
 
 use serde::Serialize;
@@ -174,6 +176,11 @@ fn show_window(app: &AppHandle, label: &str) {
     }
 }
 
+fn show_capture_window(app: &AppHandle) {
+    let _ = app.emit_to("capture", "open-quick-capture", ());
+    show_window(app, "capture");
+}
+
 fn toggle_window(app: &AppHandle, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
         if window.is_visible().unwrap_or(false) {
@@ -240,7 +247,7 @@ fn setup_tray(app: &tauri::App, runtime: Arc<WorkerRuntime>) -> tauri::Result<()
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "capture" => show_window(app, "capture"),
+            "capture" => show_capture_window(app),
             "worker" => show_window(app, "main"),
             "check" => {
                 let app = app.clone();
@@ -275,7 +282,7 @@ fn setup_tray(app: &tauri::App, runtime: Arc<WorkerRuntime>) -> tauri::Result<()
                 ..
             } = event
             {
-                show_window(tray.app_handle(), "capture");
+                show_capture_window(tray.app_handle());
             }
         })
         .build(app)?;
@@ -332,6 +339,11 @@ fn hide_current_window(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn show_worker_window(app: AppHandle) {
+    show_window(&app, "main");
+}
+
+#[tauri::command]
 fn get_start_with_windows(app: AppHandle) -> Result<bool, String> {
     app.autolaunch()
         .is_enabled()
@@ -356,8 +368,8 @@ pub fn run() {
     #[cfg(debug_assertions)]
     let _ = dotenvy::from_path(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(".env.local"));
 
-    let capture_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyC);
-    let worker_shortcut = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::ALT), Code::KeyW);
+    let capture_shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Numpad5);
+    let worker_shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::NumLock);
     let capture_for_handler = capture_shortcut.clone();
     let worker_for_handler = worker_shortcut.clone();
     let runtime = Arc::new(WorkerRuntime::new());
@@ -379,7 +391,7 @@ pub fn run() {
                     }
 
                     if shortcut == &capture_for_handler {
-                        show_window(app, "capture");
+                        show_capture_window(app);
                     } else if shortcut == &worker_for_handler {
                         toggle_window(app, "main");
                     }
@@ -414,8 +426,13 @@ pub fn run() {
             get_connection_settings,
             save_connection_settings,
             hide_current_window,
+            show_worker_window,
             get_start_with_windows,
             set_start_with_windows,
+            journal::list_journal_records,
+            journal::create_journal_record,
+            journal::update_journal_record,
+            journal::delete_journal_record,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

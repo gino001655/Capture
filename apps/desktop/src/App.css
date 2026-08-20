@@ -289,3 +289,239 @@ button:disabled {
 .successMessage {
   color: #247554;
 }
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.desktopJournal {
+  --paper: #ffffff;
+  --ink: #080808;
+  --line: #d7d7d7;
+  --soft: #f1f1f1;
+  position: relative;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.dragStrip {
+  height: 12px;
+  border-bottom: 1px solid var(--line);
+  cursor: move;
+}
+
+.areaEditor,
+.recordEditor {
+  height: calc(100vh - 12px);
+  display: grid;
+  grid-template-rows: repeat(6, minmax(0, 1fr));
+  padding: 4px 14px 12px;
+  transition: opacity 100ms ease;
+}
+
+.areaEditor.quieted {
+  opacity: 0.24;
+}
+
+.journalArea {
+  min-height: 0;
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: stretch;
+  border-bottom: 1px solid var(--line);
+}
+
+.journalArea:last-child {
+  border-bottom: 0;
+}
+
+.journalArea > span:first-child {
+  padding-top: 13px;
+  color: #666666;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
+.journalArea textarea {
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  border: 0;
+  outline: 0;
+  padding: 11px 8px;
+  background: transparent;
+  color: var(--ink);
+  line-height: 1.38;
+  scrollbar-width: thin;
+}
+
+.journalArea textarea:focus {
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+
+.journalArea textarea:disabled {
+  opacity: 1;
+}
+
+.microPrompt {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  gap: 12px;
+  background: rgba(255, 255, 255, 0.62);
+  text-align: center;
+}
+
+.microPrompt p {
+  margin: 0;
+  font-weight: 700;
+}
+
+.microPrompt div {
+  display: flex;
+  gap: 22px;
+}
+
+.desktopJournal button {
+  border: 0;
+  border-radius: 0;
+  padding: 4px 8px;
+  background: transparent;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.microPrompt button.selected {
+  border-bottom: 1px solid var(--ink);
+}
+
+.journalError {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+  left: 10px;
+  margin: 0;
+  padding: 5px 7px;
+  border: 1px solid var(--ink);
+  background: var(--paper);
+  font-size: 0.68rem;
+}
+
+.fullJournal:focus {
+  outline: none;
+}
+
+.journalToolbar {
+  height: 42px;
+  display: grid;
+  grid-template-columns: 34px 34px 1fr 34px;
+  align-items: center;
+  border-bottom: 1px solid var(--line);
+}
+
+.journalToolbar button {
+  height: 100%;
+  font-size: 1.05rem;
+}
+
+.journalToolbar label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+}
+
+.journalToolbar input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.recordStream {
+  height: calc(100vh - 54px);
+  overflow-y: auto;
+}
+
+.recordRow {
+  position: relative;
+  display: block;
+  width: 100%;
+  min-height: 84px;
+  max-height: 108px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--line) !important;
+  padding: 10px 22px 10px 14px !important;
+  text-align: left;
+}
+
+.recordRow.selected {
+  background: var(--soft);
+  box-shadow: inset 2px 0 0 var(--ink);
+}
+
+.previewLine {
+  display: grid;
+  grid-template-columns: 20px minmax(0, 1fr);
+  line-height: 1.35;
+}
+
+.previewLine i {
+  color: #666666;
+  font-style: normal;
+}
+
+.previewLine b {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 400;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recordRow em {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-style: normal;
+}
+
+.recordEditor {
+  position: relative;
+}
+
+.lockMark {
+  position: absolute;
+  right: 10px;
+  bottom: 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  .desktopJournal {
+    --paper: #050505;
+    --ink: #f7f7f7;
+    --line: #343434;
+    --soft: #181818;
+  }
+
+  .microPrompt {
+    background: rgba(0, 0, 0, 0.68);
+  }
+}

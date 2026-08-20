@@ -90,7 +90,7 @@ Success criteria:
 
 ## 7. Installable capture clients
 
-Status: Implemented and automatically verified. iPhone installation and Windows tray/shortcut behavior still require final manual smoke checks.
+Status: Complete. iPhone installation, Windows installation, tray behavior, shortcuts, and autostart were manually verified.
 
 Objective: make capture fast enough for daily use without opening a full browser or a heavy foreground Desktop window.
 
@@ -102,11 +102,22 @@ Success criteria:
 - Closing Desktop windows leaves one worker in the tray; Quit stops it.
 - The worker can start hidden with Windows and can be installed from a Windows `.exe` installer.
 
+## 8. Local Codex and Heptabase slice
+
+Status: Complete for the minimum happy path. The production Capture-to-Cloud-to-Desktop-to-Codex-to-Heptabase flow was manually verified, including MongoDB completion state and direct Heptabase card read-back.
+
+Objective: replace the fake processor and connect the first real destination without prematurely designing the final content format.
+
+Success criteria:
+
+- The Desktop invokes the signed-in local Codex CLI without placing capture text in a shell argument.
+- Codex returns a minimal Markdown note.
+- The worker uses the official Heptabase CLI to ensure Heptabase Desktop is ready, then creates a note.
+- The worker reports the Heptabase card ID through the Cloud API and MongoDB records the job as completed.
+
 ## Later milestones
 
-- Replace the fake processor with a local Codex processor.
-- Add minimal Heptabase integration.
 - Add minimal Anki integration.
 - Add offline capture only if real mobile usage demonstrates that it is needed.
-- Add retry, idempotency, crash recovery, logging, and observability as real failure modes appear.
+- Add a failed-job state, retry, idempotency, crash recovery, logging, and observability before relying on unattended processing.
 - Improve intelligent routing and visual polish after the pipeline is reliable.

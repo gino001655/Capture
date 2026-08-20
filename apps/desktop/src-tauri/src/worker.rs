@@ -1,7 +1,7 @@
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use crate::config::WorkerConfig;
+use crate::{config::WorkerConfig, processor};
 
 #[derive(Deserialize)]
 struct ClaimResponse {
@@ -43,10 +43,6 @@ pub(crate) struct WorkerReport {
     pub(crate) job_id: Option<String>,
 }
 
-fn fake_process(content: &str) -> String {
-    format!("Processed: {content}")
-}
-
 pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport, String> {
     let client = Client::new();
     let response = client
@@ -69,7 +65,10 @@ pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport
         });
     };
 
-    let result = fake_process(&job.content);
+    let content = job.content.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || processor::process_capture(&content))
+        .await
+        .map_err(|error| format!("The local processor stopped unexpectedly: {error}"))??;
 
     client
         .patch(config.endpoint(&format!("api/jobs/{}", job.id)))
@@ -83,7 +82,7 @@ pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport
 
     Ok(WorkerReport {
         outcome: "processed",
-        message: format!("Processed capture: {}", job.content),
+        message: format!("Saved capture to Heptabase: {}", job.content),
         job_id: Some(job.id),
     })
 }
@@ -106,14 +105,4 @@ pub(crate) async fn create_capture(
         .map_err(|error| format!("Capture response was invalid: {error}"))?;
 
     Ok(response.capture)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::fake_process;
-
-    #[test]
-    fn fake_processor_returns_a_deterministic_result() {
-        assert_eq!(fake_process("Buy milk"), "Processed: Buy milk");
-    }
 }

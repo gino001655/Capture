@@ -6,9 +6,9 @@ This repository is also a software-engineering learning project. Development pro
 
 ## Current status
 
-The authenticated Web/API is deployed to Vercel and verified with MongoDB Atlas and the Desktop worker. The Web is installable as an iPhone Home Screen app, and the Windows worker now has a tray menu, background polling, quick-capture and status-window shortcuts, optional autostart, and a release installer.
+The authenticated Web/API is deployed to Vercel and verified with MongoDB Atlas and the Desktop worker. The Web is installable as an iPhone Home Screen app, and the Windows worker has a tray menu, background polling, quick-capture and status-window shortcuts, optional autostart, and a release installer.
 
-The fake processor remains in place. Replacing it with the real Codex processor is the next core pipeline milestone.
+The minimum production pipeline is connected: the Desktop worker invokes the local Codex CLI, creates a note through the official Heptabase CLI, and reports the Heptabase card ID back to the Cloud API. The path has been verified against the Vercel deployment and MongoDB Atlas. Content format, retries, and failure recovery remain intentionally minimal.
 
 ## Local development
 
@@ -19,6 +19,8 @@ Requirements:
 - Rust stable MSVC toolchain
 - Visual Studio 2022 Build Tools with Desktop development with C++
 - Microsoft Edge WebView2
+- OpenAI Codex CLI installed globally with npm and signed in
+- Heptabase Desktop with its CLI enabled; the worker starts the Desktop application when processing needs it
 
 Install the workspace dependencies:
 
@@ -72,8 +74,8 @@ This Windows setup uses the `.cmd` entry because the current PowerShell executio
 - A Cloud API hosted with the Web application on Vercel.
 - MongoDB Atlas for persistent cloud data.
 - A Tauri Windows application containing the Desktop worker.
-- A simple fake processor first, followed later by a local Codex processor.
-- Heptabase and Anki integrations only after the core pipeline works.
+- A local Codex processor invoked by the Windows Desktop worker.
+- Heptabase as the first connected destination; Anki remains later work.
 
 The first end-to-end target is:
 
@@ -81,8 +83,9 @@ The first end-to-end target is:
 Web capture
 → Cloud API
 → Desktop worker
-→ Fake processor
-→ Cloud API
+→ Local Codex CLI
+→ Heptabase CLI
+→ Cloud API completion
 → Web status
 ```
 
