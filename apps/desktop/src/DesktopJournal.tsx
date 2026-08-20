@@ -1,6 +1,7 @@
 import {
   type CSSProperties,
   type KeyboardEvent as ReactKeyboardEvent,
+  type MutableRefObject,
   useCallback,
   useEffect,
   useMemo,
@@ -18,10 +19,12 @@ import {
   emptyJournalAreas,
   finishActive,
   hasJournalContent,
+  journalAreasEqual,
   quickCaptureKeyAction,
   readLocalState,
   refreshBlankDraftDate,
   shiftJournalDate,
+  textEditDiff,
   type JournalAreaKey,
   type JournalAreas,
   type JournalLocalState,
@@ -92,6 +95,10 @@ function errorMessage(error: unknown) {
   return typeof error === "string" ? error : "Journal sync failed.";
 }
 
+function isMissingConnectionError(error: string | null) {
+  return error?.startsWith("Desktop connection is not configured") ?? false;
+}
+
 function dateLabel(date: string) {
   const [, month, day] = date.split("-").map(Number);
   return `${month}.${day}`;
@@ -105,6 +112,35 @@ function previewLines(areas: JournalAreas) {
   }));
 }
 
+function recordTimeLabel(createdAt: string) {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
+}
+
+function SyncStatus({ error }: { error: string | null }) {
+  if (!error) return null;
+  if (isMissingConnectionError(error)) {
+    return (
+      <button
+        type="button"
+        className="connectionWarning"
+        aria-label="連線設定尚未完成，開啟設定"
+        title="連線設定尚未完成"
+        onClick={() => void invoke("show_worker_window")}
+      >
+        ⚠
+      </button>
+    );
+  }
+  return <p className="journalError" role="alert">{error}</p>;
+}
+
 export function DesktopJournal() {
   const [journalState, setJournalState] = useState<JournalLocalState>(initialState);
   const stateRef = useRef(journalState);
@@ -115,12 +151,21 @@ export function DesktopJournal() {
   const [recordsByDate, setRecordsByDate] = useState<Record<string, JournalRecord[]>>(readRecordCache);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [editingRecord, setEditingRecord] = useState<JournalRecord | null>(null);
+  const [editingOriginalAreas, setEditingOriginalAreas] = useState<JournalAreas | null>(null);
+  const [showDeletions, setShowDeletions] = useState(false);
   const [recordConfirmation, setRecordConfirmation] = useState<RecordConfirmation>("none");
   const [recordConfirmationChoice, setRecordConfirmationChoice] = useState<ConfirmationChoice>("confirm");
   const [specialIndex, setSpecialIndex] = useState(0);
   const [captureTheme, setCaptureTheme] = useState<CaptureTheme>(readCaptureTheme);
   const [syncError, setSyncError] = useState<string | null>(null);
   const fieldRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
+  const recordFieldRefs = useRef<Array<HTMLTextAreaElement | null>>([]);
+  const recordRowRefs = useRef<Array<HTMLButtonElement | null>>([]);
+  const verticalBoundaryRef = useRef<{
+    field: HTMLTextAreaElement;
+    direction: "up" | "down";
+    position: number;
+  } | null>(null);
   const listRef = useRef<HTMLElement | null>(null);
   const timerRef = useRef<number | null>(null);
   const syncingRef = useRef(false);
@@ -131,6 +176,69 @@ export function DesktopJournal() {
     const field = fieldRefs.current[index];
     field?.focus();
     field?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function focusRecordArea(index: number) {
+    const field = recordFieldRefs.current[index];
+    field?.focus();
+    field?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }
+
+  function handleVerticalAreaNavigation(
+    event: ReactKeyboardEvent<HTMLTextAreaElement>,
+    index: number,
+    fields: MutableRefObject<Array<HTMLTextAreaElement | null>>,
+    count: number,
+  ) {
+    if (event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+      verticalBoundaryRef.current = null;
+      return false;
+    }
+
+    const direction = event.key === "ArrowUp" ? "up" : "down";
+    const field = event.currentTarget;
+    const atTextEdge = direction === "up"
+      ? field.selectionStart === 0 && field.selectionEnd === 0
+      : field.selectionStart === field.value.length && field.selectionEnd === field.value.length;
+    const destination = direction === "up" ? index - 1 : index + 1;
+
+    if (atTextEdge && destination >= 0 && destination < count) {
+      event.preventDefault();
+      verticalBoundaryRef.current = null;
+      const next = fields.current[destination];
+      next?.focus();
+      const caret = direction === "up" ? next?.value.length ?? 0 : 0;
+      next?.setSelectionRange(caret, caret);
+      next?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      return true;
+    }
+
+    const before = field.selectionStart;
+    window.requestAnimationFrame(() => {
+      if (document.activeElement !== field) return;
+      const after = field.selectionStart;
+      const previous = verticalBoundaryRef.current;
+      if (
+        after === before &&
+        previous?.field === field &&
+        previous.direction === direction &&
+        previous.position === after &&
+        destination >= 0 &&
+        destination < count
+      ) {
+        verticalBoundaryRef.current = null;
+        const next = fields.current[destination];
+        next?.focus();
+        const caret = direction === "up" ? next?.value.length ?? 0 : 0;
+        next?.setSelectionRange(caret, caret);
+        next?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      } else {
+        verticalBoundaryRef.current = after === before
+          ? { field, direction, position: after }
+          : null;
+      }
+    });
+    return false;
   }
 
   function resizeAllFields() {
@@ -355,6 +463,13 @@ export function DesktopJournal() {
     return [local, ...cloud];
   }, [journalState.active, records, selectedDate]);
 
+  useEffect(() => {
+    recordRowRefs.current[selectedIndex]?.scrollIntoView({
+      block: "nearest",
+      behavior: "smooth",
+    });
+  }, [selectedDate, selectedIndex, listEntries.length]);
+
   function editArea(key: JournalAreaKey, value: string) {
     const next = editActiveArea(stateRef.current, key, value);
     commitState(next);
@@ -368,7 +483,6 @@ export function DesktopJournal() {
     setConfirmation("none");
     setConfirmationChoice("confirm");
     void syncNow();
-    resizeAllFields();
     window.setTimeout(() => focusArea(0), 0);
   }
 
@@ -419,22 +533,15 @@ export function DesktopJournal() {
       return;
     }
 
-    if (confirmation === "none" && event.key === "ArrowUp" && event.currentTarget.selectionStart === 0) {
-      if (index > 0) {
-        event.preventDefault();
-        focusArea(index - 1);
-      }
-      return;
-    }
     if (
       confirmation === "none" &&
-      event.key === "ArrowDown" &&
-      event.currentTarget.selectionStart === event.currentTarget.value.length
+      handleVerticalAreaNavigation(
+        event,
+        index,
+        fieldRefs,
+        JOURNAL_AREA_KEYS.length,
+      )
     ) {
-      if (index < JOURNAL_AREA_KEYS.length - 1) {
-        event.preventDefault();
-        focusArea(index + 1);
-      }
       return;
     }
 
@@ -506,14 +613,20 @@ export function DesktopJournal() {
   }
 
   function openRecord(record: JournalRecord) {
-    setEditingRecord({ ...record, areas: { ...record.areas } });
+    const areas = { ...record.areas };
+    setEditingRecord({ ...record, areas });
+    setEditingOriginalAreas({ ...areas });
+    setShowDeletions(false);
     setRecordConfirmation("none");
     setRecordConfirmationChoice("confirm");
     setView("record");
+    window.setTimeout(() => focusRecordArea(0), 0);
   }
 
   function returnToList() {
     setEditingRecord(null);
+    setEditingOriginalAreas(null);
+    setShowDeletions(false);
     setRecordConfirmation("none");
     setView("list");
     window.setTimeout(() => listRef.current?.focus(), 0);
@@ -618,8 +731,15 @@ export function DesktopJournal() {
       setRecordConfirmationChoice("confirm");
     } else if (event.key === "Escape") {
       event.preventDefault();
-      setRecordConfirmation("discard");
-      setRecordConfirmationChoice("confirm");
+      if (
+        editingOriginalAreas &&
+        journalAreasEqual(editingOriginalAreas, record.areas)
+      ) {
+        returnToList();
+      } else {
+        setRecordConfirmation("discard");
+        setRecordConfirmationChoice("confirm");
+      }
     }
   }
 
@@ -646,7 +766,10 @@ export function DesktopJournal() {
     return (
       <main className="desktopJournal quickJournal viewEnter" style={themeStyle} key="quick">
         <div className="dragStrip" data-tauri-drag-region />
-        <section className={confirmation === "none" ? "areaEditor" : "areaEditor quieted"}>
+        <section
+          className={confirmation === "none" ? "areaEditor" : "areaEditor quieted"}
+          key={journalState.active.id}
+        >
           {JOURNAL_AREA_KEYS.map((key, index) => (
             <label className="journalArea" key={key}>
               <span aria-hidden="true">{AREA_SYMBOLS[key]}</span>
@@ -658,6 +781,7 @@ export function DesktopJournal() {
                 }}
                 value={journalState.active.areas[key]}
                 onChange={(event) => {
+                  verticalBoundaryRef.current = null;
                   editArea(key, event.target.value);
                   autosizeTextarea(event.currentTarget);
                 }}
@@ -691,13 +815,16 @@ export function DesktopJournal() {
             </div>
           </div>
         ) : null}
-        {syncError ? <p className="journalError" role="alert">{syncError}</p> : null}
+        <SyncStatus error={syncError} />
       </main>
     );
   }
 
   if (view === "record" && editingRecord) {
     const delivered = editingRecord.deliveryState === "delivered";
+    const recordAreaKeys = JOURNAL_AREA_KEYS.filter(
+      (key) => !delivered || editingRecord.areas[key].trim(),
+    );
     return (
       <main
         className="desktopJournal recordEditor viewEnter"
@@ -706,27 +833,70 @@ export function DesktopJournal() {
         onKeyDown={handleRecordKey}
       >
         <div className="dragStrip" data-tauri-drag-region />
+        {!delivered ? (
+          <button
+            type="button"
+            className={showDeletions ? "deletionToggle active" : "deletionToggle"}
+            onClick={() => setShowDeletions((visible) => !visible)}
+            aria-label={showDeletions ? "隱藏刪除內容" : "顯示刪除內容"}
+            title={showDeletions ? "隱藏刪除內容" : "顯示刪除內容"}
+          >
+            −
+          </button>
+        ) : null}
         <section className={recordConfirmation === "none" ? "areaEditor" : "areaEditor quieted"}>
-          {JOURNAL_AREA_KEYS.filter((key) => !delivered || editingRecord.areas[key].trim()).map((key) => (
-            <label className="journalArea" key={key}>
-              <span aria-hidden="true">{AREA_SYMBOLS[key]}</span>
-              <span className="srOnly">{key}</span>
-              <textarea
-                ref={autosizeTextarea}
-                value={editingRecord.areas[key]}
-                onChange={(event) => {
-                  setEditingRecord({
-                    ...editingRecord,
-                    areas: { ...editingRecord.areas, [key]: event.target.value },
-                  });
-                  autosizeTextarea(event.currentTarget);
-                }}
-                rows={2}
-                disabled={delivered}
-                aria-label={key}
-              />
-            </label>
-          ))}
+          {recordAreaKeys.map((key, index) => {
+            const diff = textEditDiff(
+              editingOriginalAreas?.[key] ?? editingRecord.areas[key],
+              editingRecord.areas[key],
+            );
+            const changed = Boolean(diff.added || diff.removed);
+            return (
+              <label className="journalArea" key={key}>
+                <span aria-hidden="true">{AREA_SYMBOLS[key]}</span>
+                <span className="srOnly">{key}</span>
+                <div className="diffField">
+                  {changed ? (
+                    <pre className="diffOverlay" aria-hidden="true">
+                      <span>{diff.before}</span>
+                      {diff.added ? <ins>{diff.added}</ins> : null}
+                      <span>{diff.after}</span>
+                    </pre>
+                  ) : null}
+                  <textarea
+                    className={changed ? "diffInput" : ""}
+                    ref={(node) => {
+                      recordFieldRefs.current[index] = node;
+                      autosizeTextarea(node);
+                    }}
+                    value={editingRecord.areas[key]}
+                    onChange={(event) => {
+                      verticalBoundaryRef.current = null;
+                      setEditingRecord({
+                        ...editingRecord,
+                        areas: { ...editingRecord.areas, [key]: event.target.value },
+                      });
+                      autosizeTextarea(event.currentTarget);
+                    }}
+                    onKeyDown={(event) => {
+                      handleVerticalAreaNavigation(
+                        event,
+                        index,
+                        recordFieldRefs,
+                        recordAreaKeys.length,
+                      );
+                    }}
+                    rows={2}
+                    disabled={delivered}
+                    aria-label={key}
+                  />
+                  {showDeletions && diff.removed ? (
+                    <del className="deletedText">{diff.removed}</del>
+                  ) : null}
+                </div>
+              </label>
+            );
+          })}
         </section>
         {recordConfirmation !== "none" ? (
           <div className="microPrompt" role="dialog" aria-label={recordConfirmation === "save" ? "保存？" : "不保存？"}>
@@ -743,7 +913,7 @@ export function DesktopJournal() {
           </div>
         ) : null}
         {delivered ? <span className="lockMark" aria-label="已送出">◇</span> : null}
-        {syncError ? <p className="journalError" role="alert">{syncError}</p> : null}
+        <SyncStatus error={syncError} />
       </main>
     );
   }
@@ -774,6 +944,9 @@ export function DesktopJournal() {
           <button
             type="button"
             key={record.id}
+            ref={(node) => {
+              recordRowRefs.current[index] = node;
+            }}
             className={index === selectedIndex ? "recordRow selected" : "recordRow"}
             onClick={() => setSelectedIndex(index)}
             onDoubleClick={() => openRecord(record)}
@@ -783,11 +956,12 @@ export function DesktopJournal() {
                 <i>{line.symbol}</i><b>{line.text}</b>
               </span>
             ))}
+            <time dateTime={record.createdAt}>{recordTimeLabel(record.createdAt)}</time>
             {record.deliveryState === "delivered" ? <em aria-label="已送出">◇</em> : null}
           </button>
         ))}
       </section>
-      {syncError ? <p className="journalError" role="alert">{syncError}</p> : null}
+      <SyncStatus error={syncError} />
     </main>
   );
 }

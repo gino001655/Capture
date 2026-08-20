@@ -457,6 +457,21 @@ button:disabled {
   font-size: 0.68rem;
 }
 
+.connectionWarning {
+  position: absolute;
+  right: 8px;
+  bottom: 7px;
+  z-index: 4;
+  width: 26px;
+  height: 26px;
+  padding: 0 !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 50% !important;
+  background: var(--paper) !important;
+  color: color-mix(in srgb, #b56a00 82%, var(--ink)) !important;
+  font-size: 0.72rem;
+}
+
 .fullJournal:focus {
   outline: none;
 }
@@ -506,7 +521,7 @@ button:disabled {
   max-height: 108px;
   overflow: hidden;
   border-bottom: 1px solid var(--line) !important;
-  padding: 10px 22px 10px 14px !important;
+  padding: 10px 48px 10px 14px !important;
   text-align: left;
 }
 
@@ -537,13 +552,93 @@ button:disabled {
 
 .recordRow em {
   position: absolute;
-  top: 8px;
+  top: 27px;
   right: 8px;
   font-style: normal;
 }
 
+.recordRow time {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  color: color-mix(in srgb, var(--ink) 48%, var(--paper));
+  font-size: 0.61rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
 .recordEditor {
   position: relative;
+}
+
+.recordEditor .areaEditor {
+  padding-top: 28px;
+}
+
+.deletionToggle {
+  position: absolute;
+  top: 16px;
+  right: 8px;
+  z-index: 3;
+  width: 24px;
+  height: 24px;
+  padding: 0 !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 50% !important;
+  color: color-mix(in srgb, var(--ink) 55%, var(--paper)) !important;
+  line-height: 1;
+}
+
+.deletionToggle.active {
+  border-color: #b5443f !important;
+  color: #b5443f !important;
+}
+
+.diffField {
+  position: relative;
+  min-width: 0;
+}
+
+.diffField textarea {
+  position: relative;
+  z-index: 1;
+}
+
+.diffOverlay {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  margin: 0;
+  padding: 11px 8px;
+  overflow: hidden;
+  color: var(--ink);
+  font: inherit;
+  line-height: 1.38;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+.diffOverlay ins {
+  color: #19884a;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.journalArea textarea.diffInput {
+  color: transparent;
+  caret-color: var(--ink);
+  -webkit-text-fill-color: transparent;
+}
+
+.deletedText {
+  display: block;
+  margin: -5px 8px 9px;
+  color: #b5443f;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-decoration-thickness: 1px;
 }
 
 .captureExtensionPage {

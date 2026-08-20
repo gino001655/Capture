@@ -8,9 +8,11 @@ import {
   editActiveArea,
   finishActive,
   hasJournalContent,
+  journalAreasEqual,
   refreshBlankDraftDate,
   quickCaptureKeyAction,
   shiftJournalDate,
+  textEditDiff,
 } from "./journal.ts";
 
 const ids = [
@@ -90,4 +92,29 @@ test("an old blank draft follows today's Taipei date without moving written cont
     refreshBlankDraftDate(written, new Date("2026-08-20T03:00:00Z")).active.journalDate,
     "2026-08-18",
   );
+});
+
+test("record editing compares all six areas without storing permanent history", () => {
+  let index = 0;
+  const state = createLocalState(new Date("2026-08-20T03:00:00Z"), () => ids[index++]!);
+  assert.equal(journalAreasEqual(state.active.areas, { ...state.active.areas }), true);
+  assert.equal(
+    journalAreasEqual(state.active.areas, { ...state.active.areas, event: "changed" }),
+    false,
+  );
+});
+
+test("live edit diff identifies added and removed middle text", () => {
+  assert.deepEqual(textEditDiff("before old after", "before new after"), {
+    before: "before ",
+    added: "new",
+    removed: "old",
+    after: " after",
+  });
+  assert.deepEqual(textEditDiff("keep deleted", "keep "), {
+    before: "keep ",
+    added: "",
+    removed: "deleted",
+    after: "",
+  });
 });

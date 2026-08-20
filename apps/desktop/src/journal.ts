@@ -1,6 +1,8 @@
 import {
+  JOURNAL_AREA_KEYS,
   hasJournalContent,
   type JournalAreaKey,
+  type JournalAreas,
 } from "../../web/src/lib/journal-record.ts";
 import {
   toTaipeiJournalDate,
@@ -62,6 +64,50 @@ export type QuickCaptureAction =
   | "discard-full"
   | "discard-special"
   | "cancel";
+
+export type TextEditDiff = {
+  before: string;
+  added: string;
+  removed: string;
+  after: string;
+};
+
+export function journalAreasEqual(left: JournalAreas, right: JournalAreas) {
+  return JOURNAL_AREA_KEYS.every((key) => left[key] === right[key]);
+}
+
+/**
+ * A deliberately small session diff: it finds the unchanged prefix/suffix and
+ * treats the middle as one edited region. It is predictable for live editing
+ * and does not claim to be a permanent version-history diff.
+ */
+export function textEditDiff(original: string, current: string): TextEditDiff {
+  let prefixLength = 0;
+  const sharedLength = Math.min(original.length, current.length);
+  while (
+    prefixLength < sharedLength &&
+    original[prefixLength] === current[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+
+  let suffixLength = 0;
+  while (
+    suffixLength < original.length - prefixLength &&
+    suffixLength < current.length - prefixLength &&
+    original[original.length - 1 - suffixLength] ===
+      current[current.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+
+  return {
+    before: current.slice(0, prefixLength),
+    added: current.slice(prefixLength, current.length - suffixLength),
+    removed: original.slice(prefixLength, original.length - suffixLength),
+    after: current.slice(current.length - suffixLength),
+  };
+}
 
 export function quickCaptureKeyAction(
   hasContent: boolean,
