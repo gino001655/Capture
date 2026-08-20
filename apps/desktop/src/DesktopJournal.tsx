@@ -19,6 +19,8 @@ import {
   emptyJournalAreas,
   finishActive,
   hasJournalContent,
+  hasJournalInput,
+  journalEditCounts,
   journalAreasEqual,
   quickCaptureKeyAction,
   readLocalState,
@@ -175,13 +177,13 @@ export function DesktopJournal() {
   function focusArea(index: number) {
     const field = fieldRefs.current[index];
     field?.focus();
-    field?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    field?.scrollIntoView({ block: "center", behavior: "auto" });
   }
 
   function focusRecordArea(index: number) {
     const field = recordFieldRefs.current[index];
     field?.focus();
-    field?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    field?.scrollIntoView({ block: "center", behavior: "auto" });
   }
 
   function handleVerticalAreaNavigation(
@@ -209,7 +211,7 @@ export function DesktopJournal() {
       next?.focus();
       const caret = direction === "up" ? next?.value.length ?? 0 : 0;
       next?.setSelectionRange(caret, caret);
-      next?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      next?.scrollIntoView({ block: "center", behavior: "auto" });
       return true;
     }
 
@@ -231,7 +233,7 @@ export function DesktopJournal() {
         next?.focus();
         const caret = direction === "up" ? next?.value.length ?? 0 : 0;
         next?.setSelectionRange(caret, caret);
-        next?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        next?.scrollIntoView({ block: "center", behavior: "auto" });
       } else {
         verticalBoundaryRef.current = after === before
           ? { field, direction, position: after }
@@ -466,7 +468,7 @@ export function DesktopJournal() {
   useEffect(() => {
     recordRowRefs.current[selectedIndex]?.scrollIntoView({
       block: "nearest",
-      behavior: "smooth",
+      behavior: "auto",
     });
   }, [selectedDate, selectedIndex, listEntries.length]);
 
@@ -546,7 +548,7 @@ export function DesktopJournal() {
     }
 
     const action = quickCaptureKeyAction(
-      hasJournalContent(journalState.active.areas),
+      hasJournalInput(journalState.active.areas),
       confirmation,
       event.key,
       event.shiftKey,
@@ -649,6 +651,13 @@ export function DesktopJournal() {
   function saveRecordEditor() {
     const record = editingRecord;
     if (!record) return;
+    if (
+      editingOriginalAreas &&
+      journalAreasEqual(editingOriginalAreas, record.areas)
+    ) {
+      returnToList();
+      return;
+    }
     returnToList();
     if (record.deliveryState === "delivered") return;
 
@@ -690,6 +699,16 @@ export function DesktopJournal() {
         event.preventDefault();
         returnToList();
       }
+      return;
+    }
+
+    if (
+      event.ctrlKey &&
+      (event.key === "-" || event.code === "Minus" || event.code === "NumpadSubtract")
+    ) {
+      event.preventDefault();
+      setRecordConfirmation("none");
+      setShowDeletions((visible) => !visible);
       return;
     }
 
@@ -822,6 +841,12 @@ export function DesktopJournal() {
 
   if (view === "record" && editingRecord) {
     const delivered = editingRecord.deliveryState === "delivered";
+    const editCounts = editingOriginalAreas
+      ? journalEditCounts(editingOriginalAreas, editingRecord.areas)
+      : { added: 0, removed: 0 };
+    const saveSummary = editCounts.added === 0 && editCounts.removed === 0
+      ? "沒有變更"
+      : `新增 ${editCounts.added}・刪除 ${editCounts.removed} 字元`;
     const recordAreaKeys = JOURNAL_AREA_KEYS.filter(
       (key) => !delivered || editingRecord.areas[key].trim(),
     );
@@ -839,7 +864,7 @@ export function DesktopJournal() {
             className={showDeletions ? "deletionToggle active" : "deletionToggle"}
             onClick={() => setShowDeletions((visible) => !visible)}
             aria-label={showDeletions ? "隱藏刪除內容" : "顯示刪除內容"}
-            title={showDeletions ? "隱藏刪除內容" : "顯示刪除內容"}
+            title={`${showDeletions ? "隱藏" : "顯示"}刪除內容（Ctrl+-）`}
           >
             −
           </button>
@@ -900,7 +925,7 @@ export function DesktopJournal() {
         </section>
         {recordConfirmation !== "none" ? (
           <div className="microPrompt" role="dialog" aria-label={recordConfirmation === "save" ? "保存？" : "不保存？"}>
-            <p>{recordConfirmation === "save" ? "保存？" : "不保存？"}</p>
+            <p>{recordConfirmation === "save" ? saveSummary : "不保存？"}</p>
             <div>
               <button className={recordConfirmationChoice === "cancel" ? "selected" : ""} onClick={() => setRecordConfirmation("none")}>取消</button>
               <button

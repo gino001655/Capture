@@ -8,6 +8,8 @@ import {
   editActiveArea,
   finishActive,
   hasJournalContent,
+  hasJournalInput,
+  journalEditCounts,
   journalAreasEqual,
   refreshBlankDraftDate,
   quickCaptureKeyAction,
@@ -117,4 +119,26 @@ test("live edit diff identifies added and removed middle text", () => {
     removed: "deleted",
     after: "",
   });
+});
+
+test("Desktop treats line breaks as input so they can be completed or discarded", () => {
+  let index = 0;
+  const state = createLocalState(new Date("2026-08-20T03:00:00Z"), () => ids[index++]!);
+  const lineBreaks = { ...state.active.areas, question: "\n\n" };
+  assert.equal(hasJournalContent(lineBreaks), false);
+  assert.equal(hasJournalInput(lineBreaks), true);
+
+  const preserved = refreshBlankDraftDate(
+    { ...state, active: { ...state.active, areas: lineBreaks } },
+    new Date("2026-08-21T03:00:00Z"),
+  );
+  assert.equal(preserved.active.journalDate, "2026-08-20");
+});
+
+test("save confirmation counts added and removed Unicode characters", () => {
+  let index = 0;
+  const state = createLocalState(new Date("2026-08-20T03:00:00Z"), () => ids[index++]!);
+  const original = { ...state.active.areas, event: "abc", feeling: "old" };
+  const current = { ...original, event: "abc🙂", feeling: "new" };
+  assert.deepEqual(journalEditCounts(original, current), { added: 4, removed: 3 });
 });

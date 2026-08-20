@@ -356,7 +356,7 @@ button:disabled {
   padding: 4px 14px 12px;
   scrollbar-width: none;
   overscroll-behavior: contain;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
   transition: opacity 100ms ease;
 }
 
@@ -510,7 +510,7 @@ button:disabled {
   height: calc(100vh - 56px);
   overflow-y: auto;
   scrollbar-width: none;
-  scroll-behavior: smooth;
+  scroll-behavior: auto;
 }
 
 .recordRow {

@@ -1,6 +1,5 @@
 import {
   JOURNAL_AREA_KEYS,
-  hasJournalContent,
   type JournalAreaKey,
   type JournalAreas,
 } from "../../web/src/lib/journal-record.ts";
@@ -72,6 +71,15 @@ export type TextEditDiff = {
   after: string;
 };
 
+export type JournalEditCounts = {
+  added: number;
+  removed: number;
+};
+
+export function hasJournalInput(areas: JournalAreas) {
+  return JOURNAL_AREA_KEYS.some((key) => areas[key].length > 0);
+}
+
 export function journalAreasEqual(left: JournalAreas, right: JournalAreas) {
   return JOURNAL_AREA_KEYS.every((key) => left[key] === right[key]);
 }
@@ -109,6 +117,21 @@ export function textEditDiff(original: string, current: string): TextEditDiff {
   };
 }
 
+export function journalEditCounts(
+  original: JournalAreas,
+  current: JournalAreas,
+): JournalEditCounts {
+  return JOURNAL_AREA_KEYS.reduce<JournalEditCounts>(
+    (counts, key) => {
+      const diff = textEditDiff(original[key], current[key]);
+      counts.added += Array.from(diff.added).length;
+      counts.removed += Array.from(diff.removed).length;
+      return counts;
+    },
+    { added: 0, removed: 0 },
+  );
+}
+
 export function quickCaptureKeyAction(
   hasContent: boolean,
   confirmation: QuickCaptureConfirmation,
@@ -142,7 +165,7 @@ export function refreshBlankDraftDate(
   state: JournalLocalState,
   now: Date,
 ): JournalLocalState {
-  if (hasJournalContent(state.active.areas)) return state;
+  if (hasJournalInput(state.active.areas)) return state;
   const today = toTaipeiJournalDate(now);
   if (state.active.journalDate === today) return state;
   return {

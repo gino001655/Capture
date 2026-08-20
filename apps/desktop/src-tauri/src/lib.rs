@@ -185,7 +185,7 @@ fn show_capture_window(app: &AppHandle) {
 
 fn toggle_window(app: &AppHandle, label: &str) {
     if let Some(window) = app.get_webview_window(label) {
-        if window.is_visible().unwrap_or(false) {
+        if window.is_visible().unwrap_or(false) && window.is_focused().unwrap_or(false) {
             let _ = window.hide();
         } else {
             show_window(app, label);
@@ -372,8 +372,11 @@ pub fn run() {
 
     let capture_shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Numpad5);
     let worker_shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::NumLock);
+    // Some Windows laptop keyboards report Ctrl+NumLock as the legacy Ctrl+Pause chord.
+    let worker_pause_shortcut = Shortcut::new(Some(Modifiers::CONTROL), Code::Pause);
     let capture_for_handler = capture_shortcut.clone();
     let worker_for_handler = worker_shortcut.clone();
+    let worker_pause_for_handler = worker_pause_shortcut.clone();
     let runtime = Arc::new(WorkerRuntime::new());
 
     tauri::Builder::default()
@@ -394,7 +397,9 @@ pub fn run() {
 
                     if shortcut == &capture_for_handler {
                         show_capture_window(app);
-                    } else if shortcut == &worker_for_handler {
+                    } else if shortcut == &worker_for_handler
+                        || shortcut == &worker_pause_for_handler
+                    {
                         toggle_window(app, "main");
                     }
                 })
@@ -403,6 +408,12 @@ pub fn run() {
         .setup(move |app| {
             app.global_shortcut().register(capture_shortcut.clone())?;
             app.global_shortcut().register(worker_shortcut.clone())?;
+            if let Err(error) = app
+                .global_shortcut()
+                .register(worker_pause_shortcut.clone())
+            {
+                eprintln!("Could not register Ctrl+Pause fallback for Ctrl+NumLock: {error}");
+            }
             setup_tray(app, runtime.clone())?;
 
             if std::env::args().any(|argument| argument == "--hidden") {
