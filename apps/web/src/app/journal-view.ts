@@ -69,9 +69,7 @@ export type JournalToolbarProps = {
   date: string;
   mode: "capture" | "list" | "record";
   onOpenSettings(): void;
-  onPrevious(): void;
   onDateChange(value: string): void;
-  onNext(): void;
   onPrimaryAction(): void;
 };
 
@@ -79,15 +77,13 @@ export function JournalToolbar({
   date,
   mode,
   onOpenSettings,
-  onPrevious,
   onDateChange,
-  onNext,
   onPrimaryAction,
 }: JournalToolbarProps): ReactElement {
   const primary = mode === "list"
     ? { label: "新增紀錄", symbol: "+" }
     : mode === "record"
-      ? { label: "放棄編輯", symbol: "↶" }
+      ? { label: "復原本次修改", symbol: "復原" }
       : { label: "紀錄列表", symbol: "☷" };
   return createElement(
     "nav",
@@ -96,11 +92,6 @@ export function JournalToolbar({
       "button",
       { type: "button", "aria-label": "設定", onClick: onOpenSettings },
       settingsIcon(),
-    ),
-    createElement(
-      "button",
-      { type: "button", "aria-label": "前一天", onClick: onPrevious },
-      createElement("span", { "aria-hidden": true }, "‹"),
     ),
     createElement(
       "label",
@@ -116,12 +107,12 @@ export function JournalToolbar({
     ),
     createElement(
       "button",
-      { type: "button", "aria-label": "後一天", onClick: onNext },
-      createElement("span", { "aria-hidden": true }, "›"),
-    ),
-    createElement(
-      "button",
-      { type: "button", "aria-label": primary.label, onClick: onPrimaryAction },
+      {
+        type: "button",
+        className: mode === "record" ? "toolbarTextAction" : undefined,
+        "aria-label": primary.label,
+        onClick: onPrimaryAction,
+      },
       createElement("span", { "aria-hidden": true }, primary.symbol),
     ),
   );
@@ -189,13 +180,40 @@ export function JournalEditorView({
 export type JournalRecordListViewProps = {
   records: readonly JournalListEntry[];
   selectedId: string | null;
+  deleteMode: boolean;
+  onToggleDeleteMode(): void;
   onSelect(record: JournalListEntry): void;
 };
 
-export function JournalRecordListView({ records, selectedId, onSelect }: JournalRecordListViewProps): ReactElement {
+export function JournalRecordListView({
+  records,
+  selectedId,
+  deleteMode,
+  onToggleDeleteMode,
+  onSelect,
+}: JournalRecordListViewProps): ReactElement {
   return createElement(
     "section",
-    { className: "journalRecordStream viewEnter", "aria-label": "紀錄列表" },
+    {
+      className: deleteMode
+        ? "journalRecordStream journalDeleteMode viewEnter"
+        : "journalRecordStream viewEnter",
+      "aria-label": "紀錄列表",
+    },
+    createElement(
+      "header",
+      { className: "recordListActions" },
+      createElement(
+        "button",
+        {
+          type: "button",
+          className: deleteMode ? "active" : undefined,
+          "aria-pressed": deleteMode,
+          onClick: onToggleDeleteMode,
+        },
+        deleteMode ? "完成" : "刪除",
+      ),
+    ),
     ...records.map((record) => {
       const previews = JOURNAL_AREA_KEYS.filter((key) => record.areas[key].trim().length > 0).map((key) =>
         createElement(
@@ -208,10 +226,17 @@ export function JournalRecordListView({ records, selectedId, onSelect }: Journal
       return createElement(
         "button",
         {
-          className: "journalRecordRow",
+          className: deleteMode ? "journalRecordRow deleteTarget" : "journalRecordRow",
           type: "button",
           key: record.id,
-          "aria-label": record.deliveryState === "delivered" ? "檢視已送出紀錄" : "編輯紀錄",
+          "aria-label": deleteMode
+            ? record.deliveryState === "delivered"
+              ? "已送出，不可刪除"
+              : "移到垃圾桶"
+            : record.deliveryState === "delivered"
+              ? "檢視已送出紀錄"
+              : "編輯紀錄",
+          disabled: deleteMode && record.deliveryState === "delivered",
           "aria-current": record.id === selectedId ? "true" : undefined,
           autoFocus: record.id === selectedId,
           onClick: () => onSelect(record),
@@ -232,7 +257,6 @@ export type JournalRecordEditorViewProps = {
   onEdit(key: JournalAreaKey, value: string): void;
   onBack(): void;
   onToggleDeletions?(): void;
-  onTrash?(): void;
 };
 
 export function JournalRecordEditorView({
@@ -245,7 +269,6 @@ export function JournalRecordEditorView({
   onEdit,
   onBack,
   onToggleDeletions = () => undefined,
-  onTrash = () => undefined,
 }: JournalRecordEditorViewProps): ReactElement {
   const locked = record.deliveryState === "delivered";
   const visibleKeys = locked ? JOURNAL_AREA_KEYS.filter((key) => areas[key].trim().length > 0) : JOURNAL_AREA_KEYS;
@@ -300,7 +323,6 @@ export function JournalRecordEditorView({
             { className: "recordActions" },
             createElement("span", { className: "editCount", "aria-label": `新增 ${editCounts.added} 字元，刪除 ${editCounts.removed} 字元` }, `+${editCounts.added} −${editCounts.removed}`),
             createElement("button", { type: "button", className: showDeletions ? "active" : undefined, "aria-label": showDeletions ? "隱藏刪除內容" : "顯示刪除內容", onClick: onToggleDeletions }, "−"),
-            createElement("button", { type: "button", "aria-label": "移到垃圾桶", onClick: onTrash }, "⌫"),
           ),
     ),
     ...fields,

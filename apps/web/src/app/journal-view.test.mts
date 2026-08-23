@@ -187,24 +187,22 @@ test("the compact toolbar exposes icon-only Chinese-labelled controls and a nati
   const markup = renderToStaticMarkup(
     createElement(JournalToolbar, {
       date: "2026-08-18",
-      listMode: false,
+      mode: "capture",
       onOpenSettings() {},
-      onPrevious() {},
       onDateChange() {},
-      onNext() {},
-      onToggleList() {},
+      onPrimaryAction() {},
     }),
   );
 
-  for (const label of ["設定", "前一天", "選擇日期", "後一天", "紀錄列表"]) {
+  for (const label of ["設定", "選擇日期", "紀錄列表"]) {
     assert.ok(markup.includes(`aria-label="${label}"`));
   }
   assert.ok(markup.includes('type="date"'));
   assert.ok(markup.includes('value="2026-08-18"'));
   assert.ok(markup.includes("8.18"));
   assert.equal(markup.includes(">設定<"), false);
-  assert.equal(markup.includes(">前一天<"), false);
-  assert.equal(markup.includes(">後一天<"), false);
+  assert.equal(markup.includes('aria-label="前一天"'), false);
+  assert.equal(markup.includes('aria-label="後一天"'), false);
 });
 
 test("the record stream previews only non-empty raw areas without content cards", () => {
@@ -228,6 +226,8 @@ test("the record stream previews only non-empty raw areas without content cards"
         updatedAt: "2026-08-18T01:00:00.000Z",
       }],
       selectedId: null,
+      deleteMode: false,
+      onToggleDeleteMode() {},
       onSelect() {},
     }),
   );
@@ -235,6 +235,28 @@ test("the record stream previews only non-empty raw areas without content cards"
   assert.ok(markup.includes("  raw event\nsecond line"));
   assert.equal(markup.includes("Question"), false);
   assert.equal(markup.includes("journalCard"), false);
+});
+
+test("the record stream exposes an explicit delete mode without opening an editor", () => {
+  assert.equal(typeof JournalRecordListView, "function");
+  if (JournalRecordListView === undefined) return;
+  const markup = renderToStaticMarkup(
+    createElement(JournalRecordListView, {
+      records: [{
+        id: "00000000-0000-4000-8000-000000000001",
+        journalDate: "2026-08-18",
+        areas: { ...emptyJournalAreas(), event: "remove me" },
+        deliveryState: "undelivered",
+      }],
+      selectedId: null,
+      deleteMode: true,
+      onToggleDeleteMode() {},
+      onSelect() {},
+    }),
+  );
+  assert.ok(markup.includes(">完成<"));
+  assert.ok(markup.includes('aria-label="移到垃圾桶"'));
+  assert.ok(markup.includes("journalDeleteMode"));
 });
 
 test("record editing shows six fields when undelivered and only non-empty disabled fields when delivered", () => {
@@ -274,4 +296,5 @@ test("record editing shows six fields when undelivered and only non-empty disabl
   assert.equal((locked.match(/<textarea/g) ?? []).length, 1);
   assert.ok(locked.includes("disabled"));
   assert.ok(locked.includes('aria-label="已送出，唯讀"'));
+  assert.equal(editable.includes('aria-label="移到垃圾桶"'), false);
 });

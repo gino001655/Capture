@@ -332,6 +332,42 @@ test("opening an undelivered Cloud record makes its edit PATCH through the exist
   assert.equal(controller.getState().active.revision, 8);
 });
 
+test("discarding a Cloud edit restores the same record then closes it without queuing a duplicate", async () => {
+  const requests: Array<{ url: string; init: RequestInit }> = [];
+  const { controller } = makeController({
+    request: async (url, init) => {
+      requests.push({ url, init });
+      return acceptedResponse(url, init, 8, "idle");
+    },
+  });
+  const originalAreas = { ...emptyJournalAreas(), insight: "existing" };
+  const record: JournalRecord = {
+    id: "00000000-0000-4000-8000-000000000010",
+    deviceId: controller.getState().deviceId,
+    journalDate: "2026-08-17",
+    areas: originalAreas,
+    deliveryState: "undelivered",
+    editingState: "idle",
+    revision: 7,
+    createdAt: "2026-08-17T02:00:00.000Z",
+    updatedAt: "2026-08-17T02:00:00.000Z",
+  };
+
+  assert.equal(controller.openRecord(record), true);
+  controller.editActiveArea("insight", "unwanted edit");
+  assert.equal(controller.discardActiveEdits(originalAreas), true);
+  await nextEventLoopTurn();
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.init.method, "PATCH");
+  assert.deepEqual(
+    (JSON.parse(String(requests[0]?.init.body)) as { areas: JournalRecord["areas"] }).areas,
+    originalAreas,
+  );
+  assert.notEqual(controller.getState().active.id, record.id);
+  assert.equal(controller.getState().pending.some((draft) => draft.id === record.id), false);
+});
+
 test("delivered records cannot enter the editable sync controller", () => {
   const { controller } = makeController();
   const before = controller.getState();

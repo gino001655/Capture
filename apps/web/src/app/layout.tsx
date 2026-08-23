@@ -5,6 +5,10 @@ export const metadata: Metadata = {
   title: "Personal Capture System",
   description: "Capture now. Process locally. Use the result anywhere.",
   applicationName: "Personal Capture",
+  icons: {
+    icon: "/capture-logo.png",
+    apple: "/capture-logo.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

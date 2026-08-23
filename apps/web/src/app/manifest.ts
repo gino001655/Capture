@@ -13,14 +13,14 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#000000",
     icons: [
       {
-        src: "/icon",
-        sizes: "512x512",
+        src: "/capture-logo.png",
+        sizes: "1254x1254",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: "/icon",
-        sizes: "512x512",
+        src: "/capture-logo.png",
+        sizes: "1254x1254",
         type: "image/png",
         purpose: "maskable",
       },

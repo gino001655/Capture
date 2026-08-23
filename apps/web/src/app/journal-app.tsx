@@ -41,7 +41,8 @@ import {
   JournalToolbar,
 } from "./journal-view";
 
-type ConfirmAction = "abandon" | "trash" | null;
+type ConfirmAction = "abandon" | null;
+type DateSlideDirection = "previous" | "next" | null;
 
 function trashPreview(record: TrashedJournalRecord) {
   return Object.values(record.areas).find((value) => value.trim())?.trim() ?? "空白紀錄";
@@ -65,6 +66,8 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
   const [trashRecords, setTrashRecords] = useState<TrashedJournalRecord[]>([]);
   const [trashIssue, setTrashIssue] = useState<string | null>(null);
   const [showDeletions, setShowDeletions] = useState(false);
+  const [deleteMode, setDeleteMode] = useState(false);
+  const [dateSlideDirection, setDateSlideDirection] = useState<DateSlideDirection>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
   const [theme, setTheme] = useState<JournalTheme>(() =>
     typeof window === "undefined" ? "light" : readJournalTheme(window.localStorage),
@@ -171,12 +174,14 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     if (!controllerRef.current?.finishActiveAndStartNew()) focusNewSheetRef.current = false;
   }
 
-  function showDate(value: string) {
+  function showDate(value: string, direction: DateSlideDirection = null) {
     if (!validateJournalDate(value)) return;
+    setDateSlideDirection(direction);
     setSelectedDateOverride(value);
     setSelectedRecord(null);
     setSelectedRowId(null);
     setListIssue(null);
+    setDeleteMode(false);
     setListMode(true);
   }
 
@@ -184,6 +189,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     setSelectedRecord(null);
     setListIssue(null);
     setListMode(true);
+    setDeleteMode(false);
     setListRequestVersion((version) => version + 1);
   }
 
@@ -191,6 +197,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     focusNewSheetRef.current = true;
     if (controllerRef.current?.startNewForDate(selectedDate)) {
       setListMode(false);
+      setDeleteMode(false);
       setSelectedRecord(null);
     } else {
       focusNewSheetRef.current = false;
@@ -198,6 +205,10 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
   }
 
   function selectRecord(record: JournalListEntry) {
+    if (deleteMode) {
+      trashRecordFromList(record);
+      return;
+    }
     setSelectedRowId(record.id);
     if (
       record.deliveryState === "undelivered" &&
@@ -214,7 +225,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
   function returnToList() {
     if (selectedRecord?.deliveryState === "undelivered") {
       if (!hasJournalContent(state!.active.areas) && hasJournalContent(selectedRecord.areas)) {
-        setConfirmAction("trash");
+        setConfirmAction("abandon");
         return;
       }
       if (hasJournalContent(state!.active.areas)) controllerRef.current?.finishActiveAndStartNew();
@@ -238,14 +249,24 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     }
   }
 
-  function confirmTrash() {
-    if (!selectedRecord || !controllerRef.current?.trashActiveRecord()) return;
+  function trashRecordFromList(record: JournalListEntry) {
+    if (record.deliveryState === "delivered") return;
+    if (
+      record.serverRecord !== null &&
+      !controllerRef.current?.openRecord(record.serverRecord)
+    ) {
+      setListIssue("目前的同步完成後才能刪除這筆紀錄");
+      return;
+    }
+    if (!controllerRef.current?.trashActiveRecord()) {
+      setListIssue("目前無法刪除這筆紀錄");
+      return;
+    }
     setRecordsByDate((current) => ({
       ...current,
-      [selectedDate]: (current[selectedDate] ?? []).filter((record) => record.id !== selectedRecord.id),
+      [record.journalDate]: (current[record.journalDate] ?? []).filter((item) => item.id !== record.id),
     }));
-    setSelectedRecord(null);
-    setConfirmAction(null);
+    setSelectedRowId(null);
     setListRequestVersion((version) => version + 1);
   }
 
@@ -288,7 +309,10 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     const dy = event.clientY - start.y;
     if (Math.abs(dx) < 56 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
     swipeConsumedRef.current = true;
-    showDate(shiftJournalDate(selectedDate, dx < 0 ? 1 : -1));
+    showDate(
+      shiftJournalDate(selectedDate, dx < 0 ? 1 : -1),
+      dx < 0 ? "next" : "previous",
+    );
   }
 
   const visibleIssueMessages = [...new Set(snapshot.status.issues.map((issue) => issue.message))];
@@ -302,9 +326,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
         date={selectedDate}
         mode={mode}
         onOpenSettings={() => setSettingsOpen(true)}
-        onPrevious={() => showDate(shiftJournalDate(selectedDate, -1))}
         onDateChange={showDate}
-        onNext={() => showDate(shiftJournalDate(selectedDate, 1))}
         onPrimaryAction={mode === "capture" ? openList : mode === "list" ? addRecordForSelectedDate : requestAbandon}
       />
 
@@ -319,18 +341,21 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
           }
         }}
       >
-        {selectedRecord === null ? (
-          <>
-            <button className="dateEdge dateEdgePrevious" type="button" aria-label="前一天" onClick={() => showDate(shiftJournalDate(selectedDate, -1))}>‹</button>
-            <button className="dateEdge dateEdgeNext" type="button" aria-label="後一天" onClick={() => showDate(shiftJournalDate(selectedDate, 1))}>›</button>
-          </>
-        ) : null}
-        <div className="journalContent">
+        <div
+          className={dateSlideDirection === null ? "journalContent" : `journalContent dateSlide-${dateSlideDirection}`}
+          onAnimationEnd={() => setDateSlideDirection(null)}
+        >
           {listMode ? (
             selectedRecord === null ? (
               <>
                 {listIssue ? <div className="journalIssue" role="alert" aria-label={listIssue}><span aria-hidden="true">⚠</span></div> : null}
-                <JournalRecordListView records={reconciledList.entries} selectedId={reconciledList.selectedId} onSelect={selectRecord} />
+                <JournalRecordListView
+                  records={reconciledList.entries}
+                  selectedId={reconciledList.selectedId}
+                  deleteMode={deleteMode}
+                  onToggleDeleteMode={() => setDeleteMode((enabled) => !enabled)}
+                  onSelect={selectRecord}
+                />
               </>
             ) : (
               <JournalRecordEditorView
@@ -343,7 +368,6 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
                 onEdit={(key, value) => controllerRef.current?.editActiveArea(key, value)}
                 onBack={returnToList}
                 onToggleDeletions={() => setShowDeletions((visible) => !visible)}
-                onTrash={() => setConfirmAction("trash")}
               />
             )
           ) : (
@@ -393,11 +417,11 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
 
       {confirmAction ? (
         <div className="journalSettingsBackdrop">
-          <section className="microDialog" role="dialog" aria-modal="true" aria-label={confirmAction === "trash" ? "移到垃圾桶？" : "放棄編輯？"}>
-            <p>{confirmAction === "trash" ? "移到垃圾桶？之後可以還原。" : "放棄這次的修改？"}</p>
+          <section className="microDialog" role="dialog" aria-modal="true" aria-label="復原本次修改？">
+            <p>復原到編輯前的內容？</p>
             <div>
               <button type="button" onClick={() => setConfirmAction(null)}>取消</button>
-              <button type="button" onClick={confirmAction === "trash" ? confirmTrash : confirmAbandon}>{confirmAction === "trash" ? "移到垃圾桶" : "放棄"}</button>
+              <button type="button" onClick={confirmAbandon}>復原</button>
             </div>
           </section>
         </div>

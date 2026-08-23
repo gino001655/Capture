@@ -350,6 +350,7 @@ export function createJournalSyncController(
   let draining: Promise<void> | null = null;
   let rerunRequested = false;
   const blockedIds = new Set<string>();
+  const closeAfterAcknowledgementIds = new Set<string>();
   let snapshot: JournalSyncSnapshot = { state, status };
 
   function notifyListeners(): void {
@@ -564,6 +565,28 @@ export function createJournalSyncController(
       }
     }
 
+    if (
+      closeAfterAcknowledgementIds.has(target.draft.id) &&
+      nextState.active.id === target.draft.id &&
+      hasSameMutableFields(nextState.active, record)
+    ) {
+      closeAfterAcknowledgementIds.delete(target.draft.id);
+      activeReady = false;
+      nextState = finishActive(
+        {
+          ...nextState,
+          active: {
+            ...nextState.active,
+            areas: Object.fromEntries(
+              JOURNAL_AREA_KEYS.map((key) => [key, ""]),
+            ) as JournalAreas,
+          },
+        },
+        now(),
+        idFactory,
+      );
+    }
+
     publish(nextState);
   }
 
@@ -756,7 +779,9 @@ export function createJournalSyncController(
       publish(restored);
       return true;
     }
-    publish(finishActive(restored, now(), idFactory));
+    closeAfterAcknowledgementIds.add(state.active.id);
+    activeReady = true;
+    publish(restored);
     void drainQueue();
     return true;
   }
