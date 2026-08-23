@@ -27,14 +27,18 @@
 
 html,
 body {
-  min-height: 100%;
+  width: 100%;
+  height: 100%;
+  overscroll-behavior: none;
 }
 
 body {
   margin: 0;
+  overflow: hidden;
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+  -webkit-text-size-adjust: 100%;
 }
 
 button,
@@ -45,6 +49,8 @@ textarea {
 
 button {
   cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:disabled {
@@ -61,7 +67,8 @@ button:disabled {
   display: flex;
   flex-direction: column;
   width: min(100%, 44rem);
-  min-height: 100dvh;
+  height: 100dvh;
+  min-height: 0;
   margin: 0 auto;
   padding-top: env(safe-area-inset-top);
   padding-right: env(safe-area-inset-right);
@@ -95,6 +102,7 @@ button:disabled {
 .journalToolbar button {
   padding: 0;
   font-size: 1.25rem;
+  min-height: 2.75rem;
 }
 
 .journalDatePicker {
@@ -116,11 +124,24 @@ button:disabled {
   cursor: pointer;
 }
 
-.journalContent {
+.journalContentFrame {
   flex: 1 1 auto;
   min-height: 0;
+  position: relative;
+  overflow: hidden;
+}
+
+.journalContent {
+  height: 100%;
   overflow: auto;
-  overscroll-behavior: contain;
+  overscroll-behavior: none;
+  touch-action: pan-y;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+
+.journalContent::-webkit-scrollbar {
+  display: none;
 }
 
 .journalEditor {
@@ -147,7 +168,8 @@ button:disabled {
   width: 100%;
   min-height: 6rem;
   padding: 0.8rem 0.8rem 0.8rem 0;
-  resize: vertical;
+  resize: none;
+  overflow: hidden;
   border: 0;
   border-radius: 0;
   outline-offset: -2px;
@@ -248,6 +270,101 @@ button:disabled {
   background: transparent;
   color: var(--foreground);
   font-size: 1.3rem;
+}
+
+.recordActions {
+  display: flex;
+  align-items: stretch;
+  align-self: stretch;
+}
+
+.recordActions .editCount {
+  display: grid;
+  place-items: center;
+  padding: 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.recordActions button.active {
+  color: #b5443f;
+}
+
+.diffField {
+  position: relative;
+  min-width: 0;
+}
+
+.diffField textarea {
+  position: relative;
+  z-index: 1;
+}
+
+.diffOverlay {
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  margin: 0;
+  padding: 0.8rem 0.8rem 0.8rem 0;
+  overflow: hidden;
+  color: var(--foreground);
+  font: inherit;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  white-space: pre-wrap;
+}
+
+.diffOverlay ins {
+  color: #19884a;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.journalArea textarea.diffInput {
+  color: transparent;
+  caret-color: var(--foreground);
+  -webkit-text-fill-color: transparent;
+}
+
+.deletedText {
+  display: block;
+  margin: -0.45rem 0.8rem 0.7rem 0;
+  color: #b5443f;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-decoration-thickness: 1px;
+}
+
+.dateEdge {
+  position: absolute;
+  z-index: 3;
+  top: 40%;
+  width: 2.75rem;
+  min-height: 4.5rem;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: color-mix(in srgb, var(--foreground) 22%, transparent);
+  font-size: 2rem;
+}
+
+.dateEdgePrevious { left: 0; }
+.dateEdgeNext { right: 0; }
+
+.dateEdge:active {
+  color: var(--foreground);
+  transform: scale(0.96);
+}
+
+.viewEnter {
+  animation: view-enter 120ms ease-out both;
+}
+
+@keyframes view-enter {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
 .journalLock {
@@ -357,6 +474,77 @@ button:disabled {
 
 .journalSettings .installPrompt strong {
   color: var(--foreground);
+}
+
+.trashSettings {
+  border-bottom: 1px solid var(--border);
+}
+
+.trashHeading {
+  display: flex;
+  width: 100%;
+  min-height: 2.75rem;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0.9rem;
+  border: 0;
+  background: transparent;
+  color: var(--foreground);
+}
+
+.trashList {
+  border-top: 1px solid var(--border);
+}
+
+.trashList > p {
+  margin: 0;
+  padding: 0.85rem 0.9rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.trashRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.7rem 0.9rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.trashRow > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trashRow small {
+  display: block;
+  color: var(--muted);
+}
+
+.trashRow button,
+.microDialog button {
+  min-height: 2.75rem;
+  padding: 0 0.75rem;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--foreground);
+}
+
+.microDialog {
+  width: min(100%, 22rem);
+  padding: 1rem;
+  border: 1px solid var(--strong-border);
+  background: var(--surface);
+}
+
+.microDialog p { margin: 0 0 1rem; }
+.microDialog div { display: flex; justify-content: flex-end; gap: 0.5rem; }
+
+@media (prefers-reduced-motion: reduce) {
+  .viewEnter { animation: none; }
 }
 
 main:not(.journalShell) {

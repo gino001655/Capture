@@ -27,6 +27,10 @@ export type JournalRecord = {
   conflictOf?: string;
 };
 
+export type TrashedJournalRecord = JournalRecord & {
+  deletedAt: string;
+};
+
 export type JournalCreateInput = Pick<
   JournalRecord,
   "id" | "deviceId" | "journalDate" | "areas"

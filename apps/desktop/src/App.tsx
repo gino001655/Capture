@@ -29,6 +29,14 @@ type ConnectionSettings = {
   source: "environment" | "saved" | "missing";
 };
 
+type TrashedJournalRecord = {
+  id: string;
+  journalDate: string;
+  areas: Record<string, string>;
+  revision: number;
+  deletedAt: string;
+};
+
 function formatLastChecked(timestamp: number | null) {
   return timestamp === null
     ? "Not yet"
@@ -55,6 +63,8 @@ function WorkerView() {
   const [savingConnection, setSavingConnection] = useState(false);
   const [settingError, setSettingError] = useState<string | null>(null);
   const [captureTheme, setCaptureTheme] = useState<CaptureTheme>(readCaptureTheme);
+  const [trashRecords, setTrashRecords] = useState<TrashedJournalRecord[]>([]);
+  const [trashLoading, setTrashLoading] = useState(false);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -153,6 +163,31 @@ function WorkerView() {
       void emitTo("capture", "capture-theme-changed", theme);
     } catch {
       setSettingError("Could not save Quick Capture colors.");
+    }
+  }
+
+  async function loadTrash() {
+    setSettingError(null);
+    setTrashLoading(true);
+    try {
+      setTrashRecords(await invoke<TrashedJournalRecord[]>("list_trashed_journal_records"));
+    } catch (error) {
+      setSettingError(typeof error === "string" ? error : "Could not load trash.");
+    } finally {
+      setTrashLoading(false);
+    }
+  }
+
+  async function restoreTrashRecord(record: TrashedJournalRecord) {
+    setSettingError(null);
+    try {
+      await invoke("restore_journal_record", {
+        id: record.id,
+        input: { expectedRevision: record.revision },
+      });
+      setTrashRecords((current) => current.filter((item) => item.id !== record.id));
+    } catch (error) {
+      setSettingError(typeof error === "string" ? error : "Could not restore the record.");
     }
   }
 
@@ -259,6 +294,27 @@ function WorkerView() {
           >
             Reset
           </button>
+        </div>
+      </details>
+
+      <details className="connectionSettings trashSettings" onToggle={(event) => {
+        if (event.currentTarget.open) void loadTrash();
+      }}>
+        <summary>Trash</summary>
+        <div className="desktopTrashList">
+          {trashLoading ? <small>Loading...</small> : null}
+          {!trashLoading && trashRecords.length === 0 ? <small>No deleted records.</small> : null}
+          {trashRecords.map((record) => (
+            <div className="desktopTrashRow" key={record.id}>
+              <span>
+                <small>{record.journalDate}</small>
+                {Object.values(record.areas).find((value) => value.trim())?.trim() ?? "Empty record"}
+              </span>
+              <button type="button" className="secondaryButton" onClick={() => void restoreTrashRecord(record)}>
+                Restore
+              </button>
+            </div>
+          ))}
         </div>
       </details>
 

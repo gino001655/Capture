@@ -651,6 +651,33 @@ button:disabled {
   animation: view-enter 120ms ease-out both;
 }
 
+.desktopTrashList {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+}
+
+.desktopTrashRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--line);
+}
+
+.desktopTrashRow > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktopTrashRow small {
+  display: block;
+  opacity: 0.65;
+}
+
 @keyframes view-enter {
   from {
     opacity: 0;

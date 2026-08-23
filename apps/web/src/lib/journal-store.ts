@@ -3,18 +3,26 @@ import type {
   JournalAreas,
   JournalCreateInput,
   JournalRecord,
+  TrashedJournalRecord,
   JournalUpdateInput,
 } from "./journal-record.ts";
 import { JOURNAL_AREA_KEYS } from "./journal-record.ts";
 
 export type JournalDocument = Omit<JournalRecord, "id"> & {
   _id: string;
+  deletedAt?: string;
+};
+
+type ExistsFilter = { $exists: boolean };
+type JournalFilter = Omit<Partial<JournalDocument>, "deletedAt"> & {
+  deletedAt?: string | ExistsFilter;
 };
 
 type JournalUpdate = {
   $setOnInsert?: JournalDocument;
   $set?: Partial<JournalDocument>;
   $inc?: { revision: number };
+  $unset?: { deletedAt: "" };
 };
 
 export type JournalCollection = {
@@ -23,20 +31,17 @@ export type JournalCollection = {
     options: { name: string },
   ): Promise<string>;
   updateOne(
-    filter: Partial<JournalDocument>,
+    filter: JournalFilter,
     update: JournalUpdate,
     options?: { upsert?: boolean },
   ): Promise<unknown>;
-  findOne(filter: Partial<JournalDocument>): Promise<JournalDocument | null>;
+  findOne(filter: JournalFilter): Promise<JournalDocument | null>;
   findOneAndUpdate(
-    filter: Partial<JournalDocument>,
+    filter: JournalFilter,
     update: JournalUpdate,
     options: { returnDocument: "after" },
   ): Promise<JournalDocument | null>;
-  findOneAndDelete(
-    filter: Partial<JournalDocument>,
-  ): Promise<JournalDocument | null>;
-  find(filter: Partial<JournalDocument>): {
+  find(filter: JournalFilter): {
     sort(sort: Record<string, 1 | -1>): {
       toArray(): Promise<JournalDocument[]>;
     };
@@ -61,6 +66,11 @@ export type JournalDeleteOutcome =
   | { kind: "missing" }
   | { kind: "locked"; record: JournalRecord }
   | { kind: "conflict"; record: JournalRecord };
+
+export type JournalRestoreOutcome =
+  | { kind: "restored"; record: JournalRecord }
+  | { kind: "missing" }
+  | { kind: "conflict"; record: TrashedJournalRecord };
 
 const JOURNAL_COLLECTION_NAME = "journalRecords";
 const JOURNAL_DATE_NEWEST_FIRST_INDEX = {
@@ -107,8 +117,17 @@ async function getMongoJournalCollection(): Promise<JournalCollection> {
 }
 
 function toJournalRecord(document: JournalDocument): JournalRecord {
-  const { _id, ...record } = document;
-  return { id: _id, ...record };
+  const record = { ...document } as Record<string, unknown>;
+  delete record._id;
+  delete record.deletedAt;
+  return { id: document._id, ...record } as JournalRecord;
+}
+
+function toTrashedJournalRecord(document: JournalDocument): TrashedJournalRecord {
+  if (document.deletedAt === undefined) {
+    throw new Error("Journal trash record is missing deletedAt.");
+  }
+  return { ...toJournalRecord(document), deletedAt: document.deletedAt };
 }
 
 function hasSameAreas(left: JournalAreas, right: JournalAreas): boolean {
@@ -175,11 +194,20 @@ export class JournalStore {
   async listDate(journalDate: string): Promise<JournalRecord[]> {
     const collection = await this.getCollection();
     const documents = await collection
-      .find({ journalDate })
+      .find({ journalDate, deletedAt: { $exists: false } })
       .sort({ createdAt: -1, _id: 1 })
       .toArray();
 
     return documents.map(toJournalRecord);
+  }
+
+  async listTrash(): Promise<TrashedJournalRecord[]> {
+    const collection = await this.getCollection();
+    const documents = await collection
+      .find({ deletedAt: { $exists: true } })
+      .sort({ deletedAt: -1, _id: 1 })
+      .toArray();
+    return documents.map(toTrashedJournalRecord);
   }
 
   async update(
@@ -277,20 +305,50 @@ export class JournalStore {
     expectedRevision: number,
   ): Promise<JournalDeleteOutcome> {
     const collection = await this.getCollection();
-    const deleted = await collection.findOneAndDelete({
+    const deletedAt = this.now().toISOString();
+    const deleted = await collection.findOneAndUpdate({
       _id: id,
       revision: expectedRevision,
       deliveryState: "undelivered",
-    });
+      deletedAt: { $exists: false },
+    }, {
+      $set: { deletedAt, updatedAt: deletedAt, editingState: "idle" },
+      $inc: { revision: 1 },
+    }, { returnDocument: "after" });
 
     if (deleted !== null) return { kind: "deleted" };
 
     const current = await collection.findOne({ _id: id });
     if (current === null) return { kind: "missing" };
+    if (current.deletedAt !== undefined) return { kind: "deleted" };
     if (current.deliveryState === "delivered") {
       return { kind: "locked", record: toJournalRecord(current) };
     }
     return { kind: "conflict", record: toJournalRecord(current) };
+  }
+
+  async restore(
+    id: string,
+    expectedRevision: number,
+  ): Promise<JournalRestoreOutcome> {
+    const collection = await this.getCollection();
+    const updatedAt = this.now().toISOString();
+    const restored = await collection.findOneAndUpdate({
+      _id: id,
+      revision: expectedRevision,
+      deletedAt: { $exists: true },
+    }, {
+      $unset: { deletedAt: "" },
+      $set: { updatedAt },
+      $inc: { revision: 1 },
+    }, { returnDocument: "after" });
+
+    if (restored !== null) {
+      return { kind: "restored", record: toJournalRecord(restored) };
+    }
+    const current = await collection.findOne({ _id: id });
+    if (current === null || current.deletedAt === undefined) return { kind: "missing" };
+    return { kind: "conflict", record: toTrashedJournalRecord(current) };
   }
 }
 

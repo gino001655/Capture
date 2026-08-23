@@ -30,6 +30,8 @@ pub(crate) struct JournalRecord {
     updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     conflict_of: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    deleted_at: Option<String>,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -198,6 +200,38 @@ pub(crate) async fn delete_journal_record(
     }
     let body = response.text().await.unwrap_or_default();
     Err(api_error_message(status.as_u16(), &body))
+}
+
+#[tauri::command]
+pub(crate) async fn list_trashed_journal_records(
+    app: AppHandle,
+) -> Result<Vec<JournalRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response: JournalListResponse = send_json::<(), _>(
+        &config,
+        Method::GET,
+        config.endpoint("api/journal-records/trash"),
+        None,
+    )
+    .await?;
+    Ok(response.records)
+}
+
+#[tauri::command]
+pub(crate) async fn restore_journal_record(
+    app: AppHandle,
+    id: String,
+    input: JournalDeleteInput,
+) -> Result<JournalRecord, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response: JournalMutationResponse = send_json(
+        &config,
+        Method::POST,
+        config.endpoint(&format!("api/journal-records/{id}/restore")),
+        Some(&input),
+    )
+    .await?;
+    Ok(response.record)
 }
 
 #[cfg(test)]

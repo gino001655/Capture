@@ -452,6 +452,8 @@ pub fn run() {
             journal::create_journal_record,
             journal::update_journal_record,
             journal::delete_journal_record,
+            journal::list_trashed_journal_records,
+            journal::restore_journal_record,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

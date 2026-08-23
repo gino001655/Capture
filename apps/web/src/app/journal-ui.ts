@@ -4,6 +4,8 @@ import {
   validateJournalCreateRequest,
   validateJournalDate,
   type JournalRecord,
+  type JournalAreas,
+  type TrashedJournalRecord,
 } from "../lib/journal-record.ts";
 import type { LocalJournalDraft } from "./journal-session.ts";
 
@@ -21,6 +23,13 @@ export type JournalListEntry = Pick<
 export type ReconciledJournalList = {
   entries: JournalListEntry[];
   selectedId: string | null;
+};
+
+export type TextEditDiff = {
+  before: string;
+  added: string;
+  removed: string;
+  after: string;
 };
 
 type ThemeReader = Pick<Storage, "getItem">;
@@ -49,6 +58,12 @@ function isJournalRecord(value: unknown): value is JournalRecord {
   );
 }
 
+function isTrashedJournalRecord(value: unknown): value is TrashedJournalRecord {
+  if (!isPlainObject(value) || !isJournalRecord(value)) return false;
+  const deletedAt = (value as Record<string, unknown>).deletedAt;
+  return typeof deletedAt === "string" && Number.isFinite(Date.parse(deletedAt));
+}
+
 export function formatJournalDateLabel(journalDate: string): string {
   if (!validateJournalDate(journalDate)) {
     throw new RangeError("Journal date must be valid.");
@@ -74,6 +89,53 @@ export function parseJournalRecordList(
 
   return [...payload.records].sort(
     (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
+  );
+}
+
+export function parseJournalTrashList(payload: unknown): TrashedJournalRecord[] {
+  if (
+    !isPlainObject(payload) ||
+    !Array.isArray(payload.records) ||
+    !payload.records.every(isTrashedJournalRecord)
+  ) {
+    throw new TypeError("Journal trash response is invalid.");
+  }
+  return [...payload.records].sort(
+    (left, right) => Date.parse(right.deletedAt) - Date.parse(left.deletedAt),
+  ) as TrashedJournalRecord[];
+}
+
+export function textEditDiff(original: string, current: string): TextEditDiff {
+  let prefix = 0;
+  const shared = Math.min(original.length, current.length);
+  while (prefix < shared && original[prefix] === current[prefix]) prefix += 1;
+
+  let suffix = 0;
+  while (
+    suffix < original.length - prefix &&
+    suffix < current.length - prefix &&
+    original[original.length - 1 - suffix] === current[current.length - 1 - suffix]
+  ) {
+    suffix += 1;
+  }
+  return {
+    before: current.slice(0, prefix),
+    added: current.slice(prefix, current.length - suffix),
+    removed: original.slice(prefix, original.length - suffix),
+    after: current.slice(current.length - suffix),
+  };
+}
+
+export function journalEditCounts(original: JournalAreas, current: JournalAreas) {
+  return Object.keys(original).reduce(
+    (counts, key) => {
+      const area = key as keyof JournalAreas;
+      const diff = textEditDiff(original[area], current[area]);
+      counts.added += Array.from(diff.added).length;
+      counts.removed += Array.from(diff.removed).length;
+      return counts;
+    },
+    { added: 0, removed: 0 },
   );
 }
 

@@ -102,27 +102,22 @@ function createHarness() {
 
       const next = structuredClone(existing);
       if (update.$set !== undefined) Object.assign(next, update.$set);
+      if (update.$unset?.deletedAt !== undefined) delete next.deletedAt;
       if (update.$inc?.revision !== undefined) next.revision += update.$inc.revision;
       documents.set(next._id, next);
       return structuredClone(next);
     },
-    async findOneAndDelete(filter) {
-      const existing = findMatchingDocument(documents, filter);
-      if (existing === undefined) return null;
-      documents.delete(existing._id);
-      return structuredClone(existing);
-    },
     find(filter) {
       return {
         sort(sort) {
-          assert.deepEqual(sort, { createdAt: -1, _id: 1 });
           return {
             async toArray() {
               return [...documents.values()]
                 .filter((document) => matches(document, filter))
                 .sort((left, right) => {
-                  const createdAtComparison = right.createdAt.localeCompare(left.createdAt);
-                  if (createdAtComparison !== 0) return createdAtComparison;
+                  const sortKey = "deletedAt" in sort ? "deletedAt" : "createdAt";
+                  const comparison = (right[sortKey] ?? "").localeCompare(left[sortKey] ?? "");
+                  if (comparison !== 0) return comparison;
                   return left._id.localeCompare(right._id);
                 })
                 .map((document) => structuredClone(document));
@@ -149,18 +144,21 @@ function createHarness() {
 
 function findMatchingDocument(
   documents: Map<string, JournalDocument>,
-  filter: Partial<JournalDocument>,
+  filter: Record<string, unknown>,
 ): JournalDocument | undefined {
   return [...documents.values()].find((document) => matches(document, filter));
 }
 
 function matches(
   document: JournalDocument,
-  filter: Partial<JournalDocument>,
+  filter: Record<string, unknown>,
 ): boolean {
-  return Object.entries(filter).every(
-    ([key, value]) => document[key as keyof JournalDocument] === value,
-  );
+  return Object.entries(filter).every(([key, value]) => {
+    if (typeof value === "object" && value !== null && "$exists" in value) {
+      return Object.hasOwn(document, key) === (value as { $exists: boolean }).$exists;
+    }
+    return document[key as keyof JournalDocument] === value;
+  });
 }
 
 test("lists one date newest-first without moving edited records", async () => {
@@ -336,14 +334,34 @@ async function deleteFromStore(
   return deleteRecord.call(store, id, expectedRevision);
 }
 
-test("deletes an undelivered Journal record", async () => {
+test("moves an undelivered Journal record to the trash", async () => {
   const { store, documents } = createHarness();
   const record = await store.create(createInput(IDS.older));
 
   const outcome = await deleteFromStore(store, record.id, 0);
 
   assert.deepEqual(outcome, { kind: "deleted" });
-  assert.equal(documents.has(record.id), false);
+  assert.equal(documents.has(record.id), true);
+  assert.equal(typeof documents.get(record.id)?.deletedAt, "string");
+  assert.equal(documents.get(record.id)?.revision, 1);
+  assert.deepEqual(await store.listDate("2026-08-18"), []);
+});
+
+test("lists trashed records and restores one revision-safely", async () => {
+  const { store, documents } = createHarness();
+  const record = await store.create(createInput(IDS.older));
+  await store.delete(record.id, 0);
+
+  const trashed = await store.listTrash();
+  assert.equal(trashed.length, 1);
+  assert.equal(trashed[0]?.id, record.id);
+  assert.equal(trashed[0]?.revision, 1);
+
+  const outcome = await store.restore(record.id, 1);
+  assert.equal(outcome.kind, "restored");
+  assert.equal(documents.get(record.id)?.deletedAt, undefined);
+  assert.equal(documents.get(record.id)?.revision, 2);
+  assert.equal((await store.listDate("2026-08-18")).length, 1);
 });
 
 test("deleting an already-missing Journal record is idempotently successful", async () => {

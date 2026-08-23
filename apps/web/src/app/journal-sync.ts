@@ -2,8 +2,10 @@ import {
   hasJournalContent,
   isValidUuid,
   JOURNAL_AREA_KEYS,
+  validateJournalDate,
   validateJournalCreateRequest,
   type JournalAreaKey,
+  type JournalAreas,
   type JournalRecord,
 } from "../lib/journal-record.ts";
 import { MAX_CAPTURE_LENGTH } from "../lib/capture.ts";
@@ -41,6 +43,9 @@ export type JournalSyncController = {
   editActiveArea(key: JournalAreaKey, value: string): void;
   openRecord(record: JournalRecord): boolean;
   finishActiveAndStartNew(): boolean;
+  startNewForDate(journalDate: string): boolean;
+  discardActiveEdits(originalAreas: JournalAreas): boolean;
+  trashActiveRecord(): boolean;
   markHidden(): void;
   resumeVisible(): boolean;
   start(): Promise<void>;
@@ -720,6 +725,67 @@ export function createJournalSyncController(
     return true;
   }
 
+  function startNewForDate(journalDate: string): boolean {
+    if (disposed || !validateJournalDate(journalDate)) return false;
+    clearDebounce();
+    activeReady = false;
+    const hadContent = hasJournalContent(state.active.areas);
+    const next = hadContent ? finishActive(state, now(), idFactory) : state;
+    publish({
+      ...next,
+      active: { ...next.active, journalDate },
+    });
+    if (hadContent) void drainQueue();
+    return true;
+  }
+
+  function discardActiveEdits(originalAreas: JournalAreas): boolean {
+    if (disposed) return false;
+    clearDebounce();
+    activeVersion += 1;
+    activeReady = false;
+    const restored = {
+      ...state,
+      active: {
+        ...state.active,
+        areas: { ...originalAreas },
+        editingState: "idle" as const,
+      },
+    };
+    if (state.active.revision === null) {
+      publish(restored);
+      return true;
+    }
+    publish(finishActive(restored, now(), idFactory));
+    void drainQueue();
+    return true;
+  }
+
+  function trashActiveRecord(): boolean {
+    if (disposed) return false;
+    clearDebounce();
+    activeVersion += 1;
+    const cleared = {
+      ...state,
+      active: {
+        ...state.active,
+        areas: Object.fromEntries(
+          JOURNAL_AREA_KEYS.map((key) => [key, ""]),
+        ) as JournalAreas,
+        editingState: "idle" as const,
+      },
+    };
+    if (state.active.revision === null) {
+      activeReady = false;
+      publish(finishActive(cleared, now(), idFactory));
+      return true;
+    }
+    activeReady = true;
+    publish(cleared);
+    void drainQueue();
+    return true;
+  }
+
   return {
     getState() {
       return state;
@@ -775,6 +841,9 @@ export function createJournalSyncController(
       return true;
     },
     finishActiveAndStartNew,
+    startNewForDate,
+    discardActiveEdits,
+    trashActiveRecord,
     markHidden() {
       if (disposed) return;
       publish(markBackgrounded(state, now()));
