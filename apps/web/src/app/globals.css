@@ -226,9 +226,10 @@ button:disabled {
 }
 
 .journalRecordRow {
+  position: relative;
   display: block;
   width: 100%;
-  padding: 0.85rem 0.75rem;
+  padding: 0.85rem 3.7rem 0.85rem 0.75rem;
   border: 0;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
@@ -236,6 +237,17 @@ button:disabled {
   color: var(--foreground);
   text-align: left;
   transition: background-color 120ms ease, color 120ms ease, opacity 120ms ease, transform 120ms ease;
+}
+
+.journalRecordTime {
+  position: absolute;
+  top: 0.9rem;
+  right: 0.75rem;
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+  letter-spacing: 0.02em;
 }
 
 .journalRecordRow:active { transform: scale(0.992); }

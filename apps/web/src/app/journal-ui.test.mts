@@ -7,6 +7,7 @@ import { createLocalState, editActiveArea } from "./journal-session.ts";
 const uiModule = await import("./journal-ui.ts").catch(() => ({}));
 const {
   formatJournalDateLabel,
+  formatJournalTimeLabel,
   parseJournalRecordList,
   persistJournalTheme,
   reconcileJournalRecordList,
@@ -32,6 +33,12 @@ test("the toolbar date label uses compact month.day text", () => {
   assert.equal(typeof formatJournalDateLabel, "function");
   if (formatJournalDateLabel === undefined) return;
   assert.equal(formatJournalDateLabel("2026-08-03"), "8.3");
+});
+
+test("record timestamps use compact Taipei 24-hour time", () => {
+  assert.equal(typeof formatJournalTimeLabel, "function");
+  if (formatJournalTimeLabel === undefined) return;
+  assert.equal(formatJournalTimeLabel("2026-08-18T01:05:00.000Z"), "09:05");
 });
 
 test("a Journal list accepts only the selected date and normalizes newest first", () => {
@@ -92,6 +99,7 @@ test("a same-date local active draft appears first and is selected before Cloud 
   assert.deepEqual(result.entries.map(({ id }) => id), [active.id, cloud.id]);
   assert.equal(result.entries[0]?.areas.question, "visible while offline");
   assert.equal(result.entries[0]?.serverRecord, null);
+  assert.equal((result.entries[0] as { createdAt: string | null }).createdAt, null);
   assert.equal(result.selectedId, active.id);
 });
 

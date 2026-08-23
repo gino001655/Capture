@@ -14,6 +14,7 @@ import {
 } from "../lib/journal-record.ts";
 import {
   formatJournalDateLabel,
+  formatJournalTimeLabel,
   textEditDiff,
   type JournalListEntry,
 } from "./journal-ui.ts";
@@ -242,6 +243,16 @@ export function JournalRecordListView({
           onClick: () => onSelect(record),
         },
         ...previews,
+        record.createdAt === null
+          ? null
+          : createElement(
+              "time",
+              {
+                className: "journalRecordTime",
+                dateTime: record.createdAt,
+              },
+              formatJournalTimeLabel(record.createdAt),
+            ),
       );
     }),
   );

@@ -233,6 +233,7 @@ test("the record stream previews only non-empty raw areas without content cards"
   );
 
   assert.ok(markup.includes("  raw event\nsecond line"));
+  assert.ok(markup.includes('<time class="journalRecordTime" dateTime="2026-08-18T01:00:00.000Z">09:00</time>'));
   assert.equal(markup.includes("Question"), false);
   assert.equal(markup.includes("journalCard"), false);
 });
@@ -247,6 +248,8 @@ test("the record stream exposes an explicit delete mode without opening an edito
         journalDate: "2026-08-18",
         areas: { ...emptyJournalAreas(), event: "remove me" },
         deliveryState: "undelivered",
+        createdAt: null,
+        serverRecord: null,
       }],
       selectedId: null,
       deleteMode: true,

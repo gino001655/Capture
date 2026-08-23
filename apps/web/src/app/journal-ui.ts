@@ -17,6 +17,7 @@ export type JournalListEntry = Pick<
   JournalRecord,
   "id" | "journalDate" | "areas" | "deliveryState"
 > & {
+  createdAt: string | null;
   serverRecord: JournalRecord | null;
 };
 
@@ -70,6 +71,17 @@ export function formatJournalDateLabel(journalDate: string): string {
   }
   const [, month, day] = journalDate.split("-").map(Number);
   return `${month}.${day}`;
+}
+
+export function formatJournalTimeLabel(createdAt: string): string {
+  const date = new Date(createdAt);
+  if (Number.isNaN(date.getTime())) return "";
+  return new Intl.DateTimeFormat("zh-TW", {
+    timeZone: "Asia/Taipei",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).format(date);
 }
 
 export function parseJournalRecordList(
@@ -145,6 +157,7 @@ function serverEntry(record: JournalRecord): JournalListEntry {
     journalDate: record.journalDate,
     areas: record.areas,
     deliveryState: record.deliveryState,
+    createdAt: record.createdAt,
     serverRecord: record,
   };
 }
@@ -180,6 +193,7 @@ export function reconcileJournalRecordList(
         journalDate: active.journalDate,
         areas: active.areas,
         deliveryState: matchingServer?.deliveryState ?? "undelivered",
+        createdAt: matchingServer?.createdAt ?? null,
         serverRecord: matchingServer ?? null,
       } satisfies JournalListEntry;
   const entries = [
