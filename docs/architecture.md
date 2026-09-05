@@ -2,7 +2,7 @@
 
 ## Status
 
-The Web/API is deployed to Vercel and verified with Google authentication, MongoDB Atlas persistence, and the local Desktop worker. The worker-to-Codex-to-Heptabase path is connected and verified against production. Its first version has no durable retry or failed-job state.
+The Web/API is deployed to Vercel and verified with Google authentication, MongoDB Atlas persistence, and the local Desktop worker. The worker-to-Codex-to-Heptabase path is connected and verified against production. Its first version has no durable retry or failed-job state. The English special-recorder slice now exists in source but has not yet been deployed or manually verified across devices.
 
 ## System context
 
@@ -41,6 +41,8 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - `GET /api/captures/{id}` to read its current state;
 - `POST /api/jobs/claim` to atomically move one pending job to processing;
 - `PATCH /api/jobs/{id}` to record a completed result.
+- `GET /api/special-records/english?date=YYYY-MM-DD` to read one daily English document;
+- `PUT /api/special-records/english` to create, revise, or remove an empty daily English document with optimistic revision checking.
 
 ### MongoDB Atlas
 
@@ -50,6 +52,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Enforce the current document contract at the API boundary and in TypeScript. A database-level JSON Schema validator is deferred while the Cloud API remains the only database writer.
 - Remain accessible only from trusted server-side code.
 - Never expose its connection credentials to the browser or Desktop application.
+- Persist versioned special-recorder payloads in `specialRecords`. The first payload is `english`, uniquely addressed by module and Taipei Journal date; future modules reuse lifecycle fields without sharing their domain payloads.
 
 ### Desktop application
 
@@ -60,6 +63,15 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Keep the worker alive when its windows are hidden, expose controls through the Windows tray, and prevent duplicate worker instances.
 - Open Quick Capture with `Ctrl + Alt + C` and toggle Worker Status with `Ctrl + Alt + W`.
 - Optionally register the installed app to start hidden with Windows.
+- Discover special Capture pages from `capture-pages/*.page.tsx`. The English page keeps an immediate local pending cache and reaches the Cloud through narrow Tauri commands that reuse the saved Desktop bearer-token configuration.
+
+## English synchronization boundary
+
+- Web and Desktop both persist each keystroke locally, then debounce Cloud writes.
+- Cloud writes carry an expected revision so a stale device cannot silently overwrite newer text. The first UI preserves a conflicting local pending copy and reports an unsynchronized state; an explicit conflict-resolution interface is still required.
+- The UI permits editing only the current Taipei date. A delayed offline write for an earlier date is accepted only when its recorded client edit timestamp belongs to that same date; this preserves pre-midnight offline text without opening normal past-date editing.
+- Past documents are read-only in both clients. Empty text deletes the current empty daily document, so blank days do not remain in `specialRecords`.
+- The current slice does not yet include the content-date history list, service-worker background synchronization, Worker downstream processing, AI/Anki transformation, or production deployment verification.
 
 ### Processor
 

@@ -2,7 +2,7 @@
 
 Status: Product design approved by the user
 
-Last updated: 2026-08-18
+Last updated: 2026-09-06
 
 Purpose: Preserve product decisions made during brainstorming. This is not an implementation plan and does not claim that the target behavior is already implemented.
 
@@ -204,25 +204,50 @@ Full Journal ↔ Quick Capture ↔ English ↔ Workout ↔ Food ↔ Future modes
 - All Desktop special recorders must fit the same fixed Capture window used by Quick Capture.
 - Phone special recorders use the shared bottom rail; Desktop uses the hidden horizontal rail.
 
-### Workout — desired capabilities, exact design open
+### Shared special-recorder lifecycle — Confirmed
 
-- Ask which exercise is being performed.
-- Offer shortcuts for recent exercises.
-- Show previous records for the selected exercise.
-- Support repeated entry of weight, repetitions / sets, and rest periods.
-- Include a rest timer.
-- Provide a place for free-text impressions or technique notes about the exercise or session.
+- Mobile uses one horizontally extensible bottom rail in the order `Journal / English / Workout / Food`; Quick Capture is an entry mode rather than a bottom-rail item.
+- Desktop uses the fixed Capture window and `Ctrl + Left / Right` rail. Mobile and Desktop share data and lifecycle rules but may optimize their layouts separately.
+- Special recorders save locally on every edit and synchronize after a short delay. Switching recorder or closing never asks for confirmation.
+- Only a non-empty Quick Capture asks `不保存就離開？` before entering a special recorder.
+- Special records use a versioned `specialRecords` Cloud collection. Every module owns its payload while sharing module ID, Journal date, revision, timestamps, lock state, and processing state.
+- English and Food have at most one document per date. Workout can contain multiple sessions per date.
+- Empty English days are not persisted.
+- Only Journal writes to the Heptabase Journal. Destinations and processors for special recorders are separate later decisions.
+- Future open-source modules should be discoverable through a small registry and contribute their own payload/schema and Mobile/Desktop page rather than requiring edits throughout the application.
 
-### English — desired capabilities, exact design open
+### English — Confirmed
 
-- Behave more like a blank memo page than a sequence of small entries.
-- Preserve free-form writing rather than forcing the six-area Journal structure.
+- English is the first special-recorder vertical slice.
+- It is one plain-text memo document per Taipei calendar date, without Journal's six semantic areas, submit controls, or completion action.
+- Opening English goes directly to today, focuses the editor, and opens the phone keyboard.
+- While the phone keyboard is visible, the bottom module rail hides.
+- Today is editable. Earlier dates use the same page in read-only form with a subtle lock mark; future dates cannot be selected.
+- At Taipei midnight, the old document locks and a blank current-day editor opens. Edits made offline before midnight remain eligible for delayed synchronization after midnight.
+- A compact date/history entry will show only dates containing text and a short preview. Full-text search is deferred but must remain possible.
+- There is no delete-document or clear-document command. The current day's text can be edited or erased normally; erasing all content removes the empty Cloud document.
+- The Desktop worker will eventually forward locked, unprocessed English documents to an Anki-card workflow. AI organization, export, and Anki synchronization are later milestones.
+- No user-facing version history or device-provenance interface is required.
 
-### Food — desired capabilities, exact design open
+### Workout — Confirmed target design, not yet implemented
 
-- Use repeated structured entries.
-- Capture food, estimated calories, and protein.
-- Allow fast reuse of previously recorded foods.
+- A date can contain multiple optional-name sessions. Entry continues today's open session when one exists; otherwise it offers recent sessions/actions and a blank session.
+- Recent exercises appear first. The exercise library supports create, rename, sort, and archive; an unused exercise may be deleted, while an exercise referenced by history may only be renamed or archived.
+- Each weight-training exercise contains repeated sets with weight, repetitions, optional RPE, optional RIR, set type (working, warm-up, drop, or failure), and an optional short set note. Exercises and sessions also have free-text notes.
+- Opening an exercise presents the previous complete workout as gray ghost sets. One tap or Enter confirms an unchanged set; typing edits it first. Confirmation turns it final, starts the rest timer, and advances to the next set. After the copied sets, `+` clones the last confirmed set.
+- The compact rest timer starts after set confirmation, survives navigation, and supports pause/resume plus reset/skip. OS notifications are not required initially.
+- History initially shows the last complete record, recent weight/repetition trend, maximum weight, estimated 1RM, and recent notes. The initial PR indicators are highest weight and highest estimated 1RM.
+- Bodyweight and assisted movements use the ordinary weight × repetitions structure. Superset/circuit grouping is reserved in the payload but not implemented initially.
+- Running is a workout exercise type. It supports manual total distance and duration, derived average pace, optional average/maximum heart rate, temperature, elevation gain, RPE, notes, and optional distance/duration segments with derived pace. GPS and COROS import are deferred.
+- Workout and Food may edit today and yesterday; older dates are read-only. This window remains an explicit implementation assumption to verify during their milestones.
+
+### Food — Confirmed target design, not yet implemented
+
+- Food is one autosaved daily record containing a flat chronological list rather than meal groups.
+- The header shows calorie and protein totals against configurable daily targets.
+- An entry contains food name, serving quantity, unit, calories, and protein. Carbohydrate and fat are deferred.
+- Recent foods appear first. Choosing one loads its previous serving and nutrition for one-tap confirmation or quantity editing.
+- Its food library follows the exercise-library rules: unused items can be deleted; historically referenced items can be renamed or archived.
 
 ## Draft and record lifecycle
 

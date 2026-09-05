@@ -1,5 +1,6 @@
 mod config;
 mod journal;
+mod special;
 mod processor;
 mod worker;
 mod window_position;
@@ -454,6 +455,9 @@ pub fn run() {
             journal::delete_journal_record,
             journal::list_trashed_journal_records,
             journal::restore_journal_record,
+            special::get_english_record,
+            special::list_english_records,
+            special::save_english_record,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

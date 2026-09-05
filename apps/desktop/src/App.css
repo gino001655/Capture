@@ -647,6 +647,87 @@ button:disabled {
   background: var(--paper);
 }
 
+.englishPage {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  color: var(--ink);
+}
+
+.englishToolbar {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--line);
+  color: color-mix(in srgb, var(--ink) 62%, transparent);
+  font-size: 0.78rem;
+}
+
+.englishToolbar label { position: relative; padding: 8px 24px; }
+.englishToolbar input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+}
+
+.englishToolbar button {
+  position: absolute;
+  right: 5px;
+  width: 30px;
+  min-height: 30px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+}
+
+.englishPage > textarea {
+  min-width: 0;
+  min-height: 0;
+  resize: none;
+  border: 0;
+  outline: 0;
+  padding: 14px;
+  color: inherit;
+  background: transparent;
+  font: 1rem/1.65 system-ui, sans-serif;
+}
+
+.englishPage > textarea:read-only { opacity: 0.68; }
+.englishSyncIssue { font-size: 1rem; }
+
+.englishHistory {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: none;
+}
+
+.englishHistory::-webkit-scrollbar { display: none; }
+.englishHistory button {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  padding: 9px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+}
+
+.englishHistory time { opacity: 0.6; font-size: 0.7rem; }
+.englishHistory span {
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-height: 1.35;
+}
+
 .viewEnter {
   animation: view-enter 120ms ease-out both;
 }

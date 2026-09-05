@@ -40,6 +40,7 @@ import {
   JournalRecordListView,
   JournalToolbar,
 } from "./journal-view";
+import { ModuleRail, type CaptureModule } from "./module-rail";
 
 type ConfirmAction = "abandon" | null;
 type DateSlideDirection = "previous" | "next" | null;
@@ -48,7 +49,15 @@ function trashPreview(record: TrashedJournalRecord) {
   return Object.values(record.areas).find((value) => value.trim())?.trim() ?? "空白紀錄";
 }
 
-export function JournalApp({ accountEmail }: { accountEmail: string }) {
+export function JournalApp({
+  accountEmail,
+  active = true,
+  onSelectModule = () => undefined,
+}: {
+  accountEmail: string;
+  active?: boolean;
+  onSelectModule?: (module: CaptureModule) => void;
+}) {
   const controllerRef = useRef<JournalSyncController | null>(null);
   const unclassifiedRef = useRef<HTMLTextAreaElement | null>(null);
   const focusNewSheetRef = useRef(false);
@@ -69,6 +78,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
   const [deleteMode, setDeleteMode] = useState(false);
   const [dateSlideDirection, setDateSlideDirection] = useState<DateSlideDirection>(null);
   const [confirmAction, setConfirmAction] = useState<ConfirmAction>(null);
+  const [pendingModule, setPendingModule] = useState<CaptureModule | null>(null);
   const [theme, setTheme] = useState<JournalTheme>(() =>
     typeof window === "undefined" ? "light" : readJournalTheme(window.localStorage),
   );
@@ -158,7 +168,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
   }, [activeId]);
 
   if (snapshot === null || state === undefined || selectedDate === "") {
-    return <main className="journalShell" />;
+    return <main className="journalShell" hidden={!active} />;
   }
 
   const reconciledList = reconcileJournalRecordList(records, state.active, selectedDate, selectedRowId);
@@ -296,6 +306,23 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
     persistJournalTheme(window.localStorage, nextTheme);
   }
 
+  function requestModule(module: CaptureModule) {
+    if (module === "journal") return;
+    if (mode === "capture" && hasJournalContent(state!.active.areas)) {
+      setPendingModule(module);
+      return;
+    }
+    onSelectModule(module);
+  }
+
+  function discardAndSwitchModule() {
+    if (pendingModule === null) return;
+    if (!controllerRef.current?.trashActiveRecord()) return;
+    const destination = pendingModule;
+    setPendingModule(null);
+    onSelectModule(destination);
+  }
+
   function handlePointerDown(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLInputElement) return;
     swipeStartRef.current = { x: event.clientX, y: event.clientY };
@@ -321,7 +348,7 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
   );
 
   return (
-    <main className="journalShell">
+    <main className="journalShell" hidden={!active}>
       <JournalToolbar
         date={selectedDate}
         mode={mode}
@@ -426,6 +453,20 @@ export function JournalApp({ accountEmail }: { accountEmail: string }) {
           </section>
         </div>
       ) : null}
+
+      {pendingModule ? (
+        <div className="journalSettingsBackdrop">
+          <section className="microDialog" role="dialog" aria-modal="true" aria-label="不保存就離開？">
+            <p>不保存就離開？</p>
+            <div>
+              <button type="button" onClick={() => setPendingModule(null)}>取消</button>
+              <button type="button" onClick={discardAndSwitchModule}>離開</button>
+            </div>
+          </section>
+        </div>
+      ) : null}
+
+      <ModuleRail active="journal" onSelect={requestModule} />
     </main>
   );
 }

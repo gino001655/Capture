@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { authorizeWebHeaders } from "../lib/authorization";
-import { JournalApp } from "./journal-app";
+import { CaptureApp } from "./capture-app";
 
 export default async function Home() {
   const authorization = await authorizeWebHeaders(await headers());
@@ -11,5 +11,5 @@ export default async function Home() {
     redirect("/sign-in");
   }
 
-  return <JournalApp accountEmail={authorization.email} />;
+  return <CaptureApp accountEmail={authorization.email} />;
 }

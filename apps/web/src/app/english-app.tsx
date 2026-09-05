@@ -1,70 +1,72 @@
-import { invoke } from "@tauri-apps/api/core";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+"use client";
 
-import type { CapturePageDefinition, CapturePageProps } from "./types";
+import { useCallback, useEffect, useRef, useState } from "react";
 
-const STORAGE_KEY = "capture.desktop.english.v1";
+import type { EnglishRecord } from "../lib/special-record";
+import { toTaipeiDate } from "../lib/special-record";
+import { ModuleRail, type CaptureModule } from "./module-rail";
+
+const STORAGE_KEY = "capture.english.v1";
 const AUTOSAVE_DELAY_MS = 800;
 
-type EnglishRecord = {
-  journalDate: string;
-  payload: { schemaVersion: 1; text: string };
-  revision: number;
-  updatedAt: string;
-};
-
-type LocalDocument = {
+type LocalEnglishDocument = {
   text: string;
   revision: number | null;
   pending: boolean;
   clientUpdatedAt: string;
 };
-type Cache = Record<string, LocalDocument>;
-type HistoryEntry = { journalDate: string; text: string };
 
-function taipeiDate(now = new Date()) {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Taipei",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(now);
-  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}`;
-}
+type EnglishCache = Record<string, LocalEnglishDocument>;
+type EnglishHistoryEntry = { journalDate: string; text: string };
 
-function readCache(): Cache {
+function readCache(): EnglishCache {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    return typeof value === "object" && value !== null && !Array.isArray(value)
-      ? value as Cache
+    const parsed: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+      ? parsed as EnglishCache
       : {};
   } catch {
     return {};
   }
 }
 
-function writeCache(cache: Cache) {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(cache)); } catch { /* memory copy remains */ }
+function writeCache(cache: EnglishCache) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(cache));
 }
 
-function EnglishPage({ requestModeChange }: CapturePageProps) {
-  const initialToday = taipeiDate();
+function recordToLocal(record: EnglishRecord | null): LocalEnglishDocument {
+  return {
+    text: record?.payload.text ?? "",
+    revision: record?.revision ?? null,
+    pending: false,
+    clientUpdatedAt: record?.updatedAt ?? new Date().toISOString(),
+  };
+}
+
+export function EnglishApp({
+  active,
+  onSelectModule,
+}: {
+  active: boolean;
+  onSelectModule(module: CaptureModule): void;
+}) {
+  const initialToday = toTaipeiDate(new Date());
   const [today, setToday] = useState(initialToday);
   const [selectedDate, setSelectedDate] = useState(initialToday);
-  const [document, setDocument] = useState<LocalDocument>(() =>
+  const [document, setDocument] = useState<LocalEnglishDocument>(() =>
     readCache()[initialToday] ?? { text: "", revision: null, pending: false, clientUpdatedAt: new Date().toISOString() },
   );
-  const [issue, setIssue] = useState(false);
+  const [issue, setIssue] = useState<string | null>(null);
+  const [focused, setFocused] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [history, setHistory] = useState<EnglishHistoryEntry[]>([]);
   const documentRef = useRef(document);
   const activeDateRef = useRef(selectedDate);
   const syncingDatesRef = useRef(new Set<string>());
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
-  const timerRef = useRef<number | null>(null);
 
-  const publish = useCallback((date: string, next: LocalDocument) => {
+  const publish = useCallback((date: string, next: LocalEnglishDocument) => {
     if (date === activeDateRef.current) {
       documentRef.current = next;
       setDocument(next);
@@ -81,16 +83,20 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
     try {
       let attempt = candidate;
       while (attempt.pending) {
-        const record = await invoke<EnglishRecord | null>("save_english_record", {
-          input: {
+        const response = await fetch("/api/special-records/english", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
             journalDate: date,
             text: attempt.text,
             expectedRevision: attempt.revision,
             clientUpdatedAt: attempt.clientUpdatedAt,
-          },
+          }),
         });
+        if (!response.ok) throw new Error("sync failed");
+        const payload = await response.json() as { record: EnglishRecord | null };
         const current = readCache()[date] ?? attempt;
-        const revision = record?.revision ?? null;
+        const revision = payload.record?.revision ?? null;
         if (
           current.text === attempt.text &&
           current.clientUpdatedAt === attempt.clientUpdatedAt
@@ -101,9 +107,9 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
         attempt = { ...current, revision, pending: true };
         publish(date, attempt);
       }
-      setIssue(false);
+      setIssue(null);
     } catch {
-      setIssue(true);
+      setIssue("尚未同步");
     } finally {
       syncingDatesRef.current.delete(date);
     }
@@ -114,22 +120,19 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
     const cached = readCache()[date];
     publish(date, cached ?? { text: "", revision: null, pending: false, clientUpdatedAt: new Date().toISOString() });
     try {
-      const record = await invoke<EnglishRecord | null>("get_english_record", { journalDate: date });
-      const pending = readCache()[date];
-      if (pending?.pending) {
-        publish(date, pending);
-        void sync(date, pending);
+      const response = await fetch(`/api/special-records/english?date=${encodeURIComponent(date)}`);
+      if (!response.ok) throw new Error("load failed");
+      const payload = await response.json() as { record: EnglishRecord | null };
+      const current = readCache()[date];
+      if (current?.pending) {
+        publish(date, current);
+        void sync(date, current);
       } else {
-        publish(date, {
-          text: record?.payload.text ?? "",
-          revision: record?.revision ?? null,
-          pending: false,
-          clientUpdatedAt: record?.updatedAt ?? new Date().toISOString(),
-        });
+        publish(date, recordToLocal(payload.record));
       }
-      setIssue(false);
+      setIssue(null);
     } catch {
-      setIssue(true);
+      setIssue("離線");
     }
   }, [publish, sync]);
 
@@ -139,37 +142,26 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
     return () => window.clearTimeout(timer);
   }, [load, selectedDate]);
   useEffect(() => {
-    if (selectedDate === today) editorRef.current?.focus();
-  }, [selectedDate, today]);
+    if (active && selectedDate === today) editorRef.current?.focus();
+  }, [active, selectedDate, today]);
   useEffect(() => {
     const online = () => void sync(selectedDate, readCache()[selectedDate] ?? documentRef.current);
     window.addEventListener("online", online);
     const interval = window.setInterval(() => {
-      const next = taipeiDate();
-      if (next !== today) {
+      const nextToday = toTaipeiDate(new Date());
+      if (nextToday !== today) {
         void sync(selectedDate, documentRef.current);
-        activeDateRef.current = next;
-        setToday(next);
-        setSelectedDate(next);
+        activeDateRef.current = nextToday;
+        setToday(nextToday);
+        setSelectedDate(nextToday);
       }
     }, 30_000);
     return () => {
       window.removeEventListener("online", online);
       window.clearInterval(interval);
-      if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+      if (timerRef.current) clearTimeout(timerRef.current);
     };
   }, [selectedDate, sync, today]);
-
-  function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (!event.ctrlKey) return;
-    if (event.key === "ArrowLeft") {
-      event.preventDefault();
-      requestModeChange(-1);
-    } else if (event.key === "ArrowRight") {
-      event.preventDefault();
-      requestModeChange(1);
-    }
-  }
 
   const editable = selectedDate === today;
   const [, month, day] = selectedDate.split("-");
@@ -177,16 +169,17 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
   async function toggleHistory() {
     if (historyOpen) {
       setHistoryOpen(false);
-      editorRef.current?.focus();
       return;
     }
     const merged = new Map<string, string>();
     try {
-      const records = await invoke<EnglishRecord[]>("list_english_records");
-      for (const record of records) merged.set(record.journalDate, record.payload.text);
-      setIssue(false);
+      const response = await fetch("/api/special-records/english");
+      if (!response.ok) throw new Error("history failed");
+      const payload = await response.json() as { records: EnglishRecord[] };
+      for (const record of payload.records) merged.set(record.journalDate, record.payload.text);
+      setIssue(null);
     } catch {
-      setIssue(true);
+      setIssue("離線");
     }
     for (const [date, local] of Object.entries(readCache())) {
       if (local.text.trim()) merged.set(date, local.text);
@@ -200,7 +193,7 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
   }
 
   return (
-    <main className="captureExtensionPage englishPage viewEnter" aria-label="英文紀錄" onKeyDown={handleKeyDown}>
+    <main className="englishShell" hidden={!active}>
       <header className="englishToolbar">
         <label>
           <span>{Number(month)}.{Number(day)}</span>
@@ -217,7 +210,7 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
           />
         </label>
         {!editable ? <span aria-label="過往紀錄唯讀">◇</span> : null}
-        {issue ? <span className="englishSyncIssue" aria-label="尚未同步">·</span> : null}
+        {issue ? <span className="englishIssue" aria-label={issue}>·</span> : null}
         <button type="button" aria-label="英文紀錄列表" onClick={() => void toggleHistory()}>☷</button>
       </header>
       {historyOpen ? (
@@ -240,10 +233,13 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
       ) : (
         <textarea
           ref={editorRef}
+          className="englishEditor"
           aria-label={`${selectedDate} 英文紀錄`}
           value={document.text}
           readOnly={!editable}
           spellCheck
+          onFocus={() => setFocused(true)}
+          onBlur={() => setFocused(false)}
           onChange={(event) => {
             const next = {
               ...documentRef.current,
@@ -252,17 +248,12 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
               clientUpdatedAt: new Date().toISOString(),
             };
             publish(selectedDate, next);
-            if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-            timerRef.current = window.setTimeout(() => void sync(selectedDate, next), AUTOSAVE_DELAY_MS);
+            if (timerRef.current) clearTimeout(timerRef.current);
+            timerRef.current = setTimeout(() => void sync(selectedDate, next), AUTOSAVE_DELAY_MS);
           }}
         />
       )}
+      {!focused ? <ModuleRail active="english" onSelect={onSelectModule} /> : null}
     </main>
   );
 }
-
-export default {
-  id: "english",
-  order: 10,
-  Component: EnglishPage,
-} satisfies CapturePageDefinition;
