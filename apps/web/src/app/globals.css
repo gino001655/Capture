@@ -179,6 +179,7 @@ button:disabled {
   outline: 0;
   background: transparent;
   color: var(--foreground);
+  text-align: start;
   font: 1rem/1.65 Arial, Helvetica, sans-serif;
   overscroll-behavior: none;
 }
@@ -746,7 +747,7 @@ button:disabled {
   .journalSettings { animation: none; }
 }
 
-main:not(.journalShell) {
+main:not(.journalShell):not(.englishShell):not(.specialPlaceholder) {
   display: grid;
   width: min(100%, 64rem);
   min-height: 100dvh;
@@ -817,7 +818,7 @@ main:not(.journalShell) {
 }
 
 @media (max-width: 44.99rem) {
-  main:not(.journalShell) {
+  main:not(.journalShell):not(.englishShell):not(.specialPlaceholder) {
     padding-top: max(1rem, env(safe-area-inset-top));
     padding-right: max(1rem, env(safe-area-inset-right));
     padding-bottom: max(1rem, env(safe-area-inset-bottom));
