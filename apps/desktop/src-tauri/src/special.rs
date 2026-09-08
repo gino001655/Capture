@@ -134,6 +134,29 @@ struct FoodListResponse {
     records: Vec<FoodRecord>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FoodLibraryRecord {
+    id: String,
+    module_id: String,
+    payload: Value,
+    revision: u64,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FoodLibrarySaveInput {
+    payload: Value,
+    expected_revision: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct FoodLibraryResponse {
+    record: Option<FoodLibraryRecord>,
+}
+
 fn error_message(status: u16, body: &str) -> String {
     serde_json::from_str::<Value>(body)
         .ok()
@@ -383,6 +406,47 @@ pub(crate) async fn save_food_record(
         .await
         .map_err(|error| format!("Could not reach Food API: {error}"))?;
     decode_food_response(response).await
+}
+
+async fn decode_food_library_response(
+    response: reqwest::Response,
+) -> Result<Option<FoodLibraryRecord>, String> {
+    let status = response.status();
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(error_message(status.as_u16(), &body));
+    }
+    serde_json::from_str::<FoodLibraryResponse>(&body)
+        .map(|payload| payload.record)
+        .map_err(|error| format!("Food library API response was invalid: {error}"))
+}
+
+#[tauri::command]
+pub(crate) async fn get_food_library(app: AppHandle) -> Result<Option<FoodLibraryRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .get(config.endpoint("api/special-records/food/library"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Food library API: {error}"))?;
+    decode_food_library_response(response).await
+}
+
+#[tauri::command]
+pub(crate) async fn save_food_library(
+    app: AppHandle,
+    input: FoodLibrarySaveInput,
+) -> Result<Option<FoodLibraryRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .put(config.endpoint("api/special-records/food/library"))
+        .bearer_auth(&config.device_token)
+        .json(&input)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Food library API: {error}"))?;
+    decode_food_library_response(response).await
 }
 
 #[cfg(test)]

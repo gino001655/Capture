@@ -922,6 +922,10 @@ button:disabled {
 .foodFields label { display: grid; gap: 2px; opacity: 0.64; font-size: 0.62rem; }
 .foodFields input { width: 100%; padding: 5px 1px; border-bottom: 1px solid var(--food-line); }
 .foodEntry textarea { width: 100%; min-height: 34px; padding: 8px 0 2px; resize: vertical; }
+.foodLibrary { padding: 8px 10px; border-bottom: 1px solid var(--food-line); }
+.foodLibrary > div { display: grid; grid-template-columns: 1fr repeat(4, 28px); align-items: center; }
+.foodLibrary > div.archived { opacity: 0.4; }
+.foodLibrary input, .foodLibrary button { min-width: 0; border: 0; padding: 7px 3px; background: transparent; color: inherit; }
 
 main:not(.journalShell):not(.englishShell):not(.specialPlaceholder) {
   display: grid;

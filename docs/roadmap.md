@@ -144,11 +144,17 @@ Status: Planned. The daily English source document and history are implemented.
 
 ## 12. Workout and running recorder
 
-Status: Designed; not implemented.
+Status: Core vertical slice implemented.
+
+- Web, Cloud, and Desktop support autosaved strength sessions, copied prior sets, set confirmation, rest timing, RPE/RIR, set types and notes, running metrics and segments, history metrics, and an editable synced exercise library.
+- Superset/circuit grouping, imported sensor data, and production mobile/desktop UX validation remain later work.
 
 ## 13. Food recorder
 
-Status: Designed; not implemented.
+Status: Core vertical slice implemented.
+
+- Web, Cloud, and Desktop support autosaved daily flat entries, calorie/protein targets and totals, recent-food reuse, and a synced food library with revision-safe rename/order/archive/delete rules.
+- Carbohydrate/fat tracking, nutrition lookup, and production mobile/desktop UX validation remain later work.
 
 ## Later reliability and product work
 

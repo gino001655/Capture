@@ -915,3 +915,7 @@ button:disabled {
 .desktopFoodFields label { display: grid; gap: 2px; opacity: 0.65; font-size: 0.58rem; }
 .desktopFoodFields input { width: 100%; padding: 4px 1px; border-bottom: 1px solid var(--line); }
 .desktopFood article textarea { width: 100%; min-height: 30px; padding-top: 7px; resize: none; }
+.desktopFoodLibrary { padding: 7px 9px; border-bottom: 1px solid var(--line); }
+.desktopFoodLibrary > div { display: grid; grid-template-columns: 1fr repeat(4, 24px); align-items: center; }
+.desktopFoodLibrary > div.archived { opacity: 0.4; }
+.desktopFoodLibrary input { padding: 6px 1px; }

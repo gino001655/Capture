@@ -2,6 +2,7 @@ import { isValidUuid, validateJournalDate } from "./journal-record.ts";
 
 export type FoodEntry = {
   id: string;
+  libraryEntryId?: string;
   name: string;
   quantity: number | null;
   unit: string;
@@ -41,7 +42,7 @@ export function validateFoodSaveRequest(input: unknown): { success: true; value:
   if (!object(input) || !validateJournalDate(input.journalDate) || !object(input.payload) || input.payload.schemaVersion !== 1 || !Array.isArray(input.payload.entries) || input.payload.entries.length > 300) return { success: false, message: "Food request must contain a valid date and schemaVersion 1 payload." };
   if (!optionalNumber(input.payload.calorieTarget, 100_000) || !optionalNumber(input.payload.proteinTargetGrams, 10_000)) return { success: false, message: "Food targets must be non-negative numbers or null." };
   for (const raw of input.payload.entries) {
-    if (!object(raw) || !isValidUuid(raw.id) || typeof raw.name !== "string" || !raw.name.trim() || raw.name.length > 200 || !optionalNumber(raw.quantity, 100_000) || typeof raw.unit !== "string" || raw.unit.length > 40 || !optionalNumber(raw.calories, 1_000_000) || !optionalNumber(raw.proteinGrams, 100_000) || typeof raw.note !== "string" || raw.note.length > 5_000 || typeof raw.occurredAt !== "string" || !Number.isFinite(Date.parse(raw.occurredAt))) return { success: false, message: "Each food entry must have valid food, serving, nutrition, note, and time fields." };
+    if (!object(raw) || !isValidUuid(raw.id) || (raw.libraryEntryId !== undefined && !isValidUuid(raw.libraryEntryId)) || typeof raw.name !== "string" || !raw.name.trim() || raw.name.length > 200 || !optionalNumber(raw.quantity, 100_000) || typeof raw.unit !== "string" || raw.unit.length > 40 || !optionalNumber(raw.calories, 1_000_000) || !optionalNumber(raw.proteinGrams, 100_000) || typeof raw.note !== "string" || raw.note.length > 5_000 || typeof raw.occurredAt !== "string" || !Number.isFinite(Date.parse(raw.occurredAt))) return { success: false, message: "Each food entry must have valid food, serving, nutrition, note, and time fields." };
   }
   if (input.expectedRevision !== null && (typeof input.expectedRevision !== "number" || !Number.isSafeInteger(input.expectedRevision) || input.expectedRevision < 0) || typeof input.clientUpdatedAt !== "string" || !Number.isFinite(Date.parse(input.clientUpdatedAt))) return { success: false, message: "Food revision and edit timestamp are invalid." };
   return { success: true, value: input as FoodSaveInput };

@@ -229,7 +229,7 @@ Full Journal ↔ Quick Capture ↔ English ↔ Workout ↔ Food ↔ Future modes
 - The Desktop worker will eventually forward locked, unprocessed English documents to an Anki-card workflow. AI organization, export, and Anki synchronization are later milestones.
 - No user-facing version history or device-provenance interface is required.
 
-### Workout — Confirmed target design, not yet implemented
+### Workout — Confirmed; core implemented
 
 - A date can contain multiple optional-name sessions. Entry continues today's open session when one exists; otherwise it offers recent sessions/actions and a blank session.
 - Recent exercises appear first. The exercise library supports create, rename, sort, and archive; an unused exercise may be deleted, while an exercise referenced by history may only be renamed or archived.
@@ -241,7 +241,7 @@ Full Journal ↔ Quick Capture ↔ English ↔ Workout ↔ Food ↔ Future modes
 - Running is a workout exercise type. It supports manual total distance and duration, derived average pace, optional average/maximum heart rate, temperature, elevation gain, RPE, notes, and optional distance/duration segments with derived pace. GPS and COROS import are deferred.
 - Workout and Food may edit today and yesterday; older dates are read-only. This window remains an explicit implementation assumption to verify during their milestones.
 
-### Food — Confirmed target design, not yet implemented
+### Food — Confirmed; core implemented
 
 - Food is one autosaved daily record containing a flat chronological list rather than meal groups.
 - The header shows calorie and protein totals against configurable daily targets.

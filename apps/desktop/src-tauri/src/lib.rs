@@ -494,6 +494,8 @@ pub fn run() {
             special::get_food_record,
             special::list_food_records,
             special::save_food_record,
+            special::get_food_library,
+            special::save_food_library,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
