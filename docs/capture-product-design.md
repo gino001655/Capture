@@ -2,7 +2,7 @@
 
 Status: Product design approved by the user
 
-Last updated: 2026-09-06
+Last updated: 2026-09-08
 
 Purpose: Preserve product decisions made during brainstorming. This is not an implementation plan and does not claim that the target behavior is already implemented.
 
@@ -26,7 +26,7 @@ Web / iPhone PWA
 → Cloud completion state
 ```
 
-The current Desktop shortcuts documented by the repository are `Ctrl + Alt + C` for Quick Capture and `Ctrl + Alt + W` for Worker Status. The shortcuts described below are the **target product design**, not current verified behavior.
+The implemented Desktop shortcuts are `Ctrl + Numpad 5` for Quick Capture and `Ctrl + NumLock` (`Ctrl + Pause` fallback) for Worker Status. The sections below preserve the decisions that led to the implementation; they are product history rather than a live completion checklist.
 
 ## Product intent
 
@@ -352,7 +352,7 @@ Example shape:
 - Arbitrary `Fn + key` shortcuts are not a reliable application-level option: the Fn layer is typically handled by keyboard firmware and is not exposed as a normal modifier to the current Windows / Tauri shortcut stack.
 - The dedicated NitroSense key was considered but not selected because remapping it may interfere with Acer's fan and performance controls.
 
-### Required verification before implementation
+### Historical verification checklist
 
 - Confirm that `Ctrl + Numpad 5` can be registered without collision.
 - Confirm behavior with NumLock both on and off; Windows may expose the physical Numpad 5 key differently when NumLock is off.

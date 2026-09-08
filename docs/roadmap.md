@@ -97,8 +97,8 @@ Objective: make capture fast enough for daily use without opening a full browser
 Success criteria:
 
 - The deployed Web app can be added to the iPhone Home Screen and opens in standalone mode.
-- `Ctrl + Alt + C` opens a focused Desktop capture input.
-- `Ctrl + Alt + W` shows or hides Worker Status.
+- `Ctrl + Numpad 5` opens a focused Desktop capture input.
+- `Ctrl + NumLock` (with `Ctrl + Pause` fallback) shows or hides Worker Status.
 - Closing Desktop windows leaves one worker in the tray; Quit stops it.
 - The worker can start hidden with Windows and can be installed from a Windows `.exe` installer.
 
@@ -130,13 +130,13 @@ Remaining limitation: Heptabase does not expose an idempotency key. A crash in t
 
 ## 10. Open-source extension boundary
 
-Status: Foundation implemented; public-license selection and broader provider coverage remain.
+Status: Initial extension boundary complete.
 
 - Web and Desktop now share one typed recorder catalog; Desktop page files remain auto-discovered and Web completeness is build-checked.
-- The extension guide documents the minimum files needed to add a recorder.
+- The recorder generator creates registered Web/Desktop starters, and the page guide documents the interaction, data, and verification contract.
 - The legacy AI stage now has a configurable `codex-cli` / deterministic `none` provider boundary and optional model selection, without committing credentials.
 - Destination and database adapters remain the next interface extraction; only Heptabase and MongoDB are currently implemented.
-- Supply examples and development setup suitable for a GitHub user modifying a personal fork.
+- MIT licensing, contribution guidance, security reporting, environment templates, and development setup support a GitHub user modifying a personal fork.
 
 ## 11. English to Anki
 
@@ -158,7 +158,6 @@ Status: Core vertical slice implemented.
 
 ## Later reliability and product work
 
-- Add offline capture only if real mobile usage demonstrates that it is needed.
-- Add explicit English conflict resolution and improve legacy capture retry/idempotency.
+- Production-verify the new offline shell, reconnect retry, cross-device conflict resolution, and bounded queue draining.
 - Resolve the Heptabase append acknowledgement crash window if its API gains a stable idempotency mechanism.
 - Add AI organization only after the deterministic delivery path is production-verified.

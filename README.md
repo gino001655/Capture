@@ -4,6 +4,8 @@ A personal system for quickly capturing information, processing it on a Windows 
 
 This repository is also a software-engineering learning project. Development proceeds in small, testable vertical slices so that each architectural boundary is understood before the system is expanded.
 
+Licensed under the [MIT License](LICENSE). See [Contributing](CONTRIBUTING.md) before proposing a new recorder or integration.
+
 ## Current status
 
 The authenticated Web/API is deployed to Vercel and verified with MongoDB Atlas and the Desktop worker. The Web is installable as an iPhone Home Screen app, and the Windows worker has a tray menu, background polling, quick-capture and status-window shortcuts, optional autostart, and a release installer.
@@ -100,10 +102,20 @@ Web capture
 - Introduce infrastructure and abstractions only when a milestone needs them.
 - Treat executable verification and manual verification as different evidence.
 
+Create a minimal Web/Desktop recorder starter with:
+
+```powershell
+pnpm.cmd create:recorder -- reading 閱讀 R
+```
+
+The generated UI is intentionally plain. The [Recorder Page Guide](docs/recorder-pages.md) explains the interaction, synchronization, and verification contract without requiring a plugin framework.
+
 ## Documentation
 
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Extending recorders, AI, and destinations](docs/extending-capture.md)
 - [Recorder page creation guide](docs/recorder-pages.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
 - [Collaboration rules](AGENTS.md)

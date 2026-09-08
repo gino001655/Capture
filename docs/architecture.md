@@ -26,7 +26,8 @@ flowchart LR
 - Provide a mobile-oriented capture form.
 - Display captures and processing status.
 - Provide a Web App Manifest and Apple metadata so the deployed site can be installed from Safari onto the iPhone Home Screen.
-- Continue to require a network connection; offline capture and a service worker are not implemented yet.
+- Register a small first-party service worker after authentication. Static assets are cache-first, the authenticated root shell is network-first with an offline fallback, and API/auth/write requests are never cached.
+- Keep pending recorder edits in browser storage and retry them after connectivity returns. Signing out clears the cached authenticated shell.
 
 ### Cloud API
 
@@ -40,7 +41,8 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - `POST /api/captures` to create a pending capture;
 - `GET /api/captures/{id}` to read its current state;
 - `POST /api/jobs/claim` to atomically move one pending job to processing;
-- `PATCH /api/jobs/{id}` to record a completed result.
+- `PATCH /api/jobs/{id}` to record either a completed result or a retryable failure;
+- `POST /api/jobs/retry` to make failed legacy work immediately retryable;
 - `GET /api/journal-deliveries` to report pending, processing, and failed Journal work;
 - `POST /api/journal-deliveries/claim` to lease the oldest eligible Journal date to the Desktop worker;
 - `PATCH /api/journal-deliveries/{attemptId}` to complete or fail one leased batch;
@@ -80,10 +82,10 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 ## English synchronization boundary
 
 - Web and Desktop both persist each keystroke locally, then debounce Cloud writes.
-- Cloud writes carry an expected revision so a stale device cannot silently overwrite newer text. The first UI preserves a conflicting local pending copy and reports an unsynchronized state; an explicit conflict-resolution interface is still required.
+- Cloud writes carry an expected revision so a stale device cannot silently overwrite newer text. The UI preserves a conflicting local pending copy and offers explicit Cloud/local resolution.
 - The UI permits editing only the current Taipei date. A delayed offline write for an earlier date is accepted only when its recorded client edit timestamp belongs to that same date; this preserves pre-midnight offline text without opening normal past-date editing.
 - Past documents are read-only in both clients. Empty text deletes the current empty daily document, so blank days do not remain in `specialRecords`.
-- The current slice includes the content-date history list. It does not yet include service-worker background synchronization, AI/Anki transformation, explicit conflict resolution, or cross-device manual verification.
+- The current slice includes the content-date history list, offline shell, reconnect retry, and explicit conflict resolution. It does not include background-sync API reliance, AI/Anki transformation, or completed cross-device manual verification.
 
 ### Processor
 
@@ -93,7 +95,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Run the official Heptabase `start` command before writing, launching Heptabase Desktop when necessary and waiting up to 60 seconds for its local CLI server.
 - Return the created Heptabase card ID and title as the Cloud processing result.
 - Not own persistence, retry policy, or authoritative job state.
-- Currently leave a claimed job in `processing` if Codex or Heptabase fails; retry and explicit failure states are later reliability work.
+- Report legacy processor failures to Cloud, delay ordinary retry for 15 minutes, expose immediate manual retry, and recover abandoned 30-minute processing leases.
 - For Journal batches, deterministically convert the six Capture areas to the approved Markdown bullets and dividers without AI rewriting.
 - Read the target Heptabase Journal, then append with its `contentMd5` as a conflict precondition. Cloud records are marked delivered and locked only after the append succeeds.
 - A failed Journal append is reported to Cloud and becomes retryable after 15 minutes or immediately through `Check now`.
@@ -109,7 +111,7 @@ The worker checks for work:
 3. every five minutes while running and online;
 4. when the user selects a manual check action.
 
-All triggers share one check operation and avoid overlapping polls. The application runs the five-minute schedule in Rust so hiding the WebView window does not stop the worker. Each check handles one Journal date before falling back to one legacy capture. Journal failures have durable retry state; legacy capture failures, full queue draining, and explicit sleep-resume handling remain future reliability work.
+All triggers share one check operation and avoid overlapping polls. The application runs the five-minute schedule in Rust so hiding the WebView window does not stop the worker. One wake drains up to 20 Journal or legacy items, stops on the first error, and reports an aggregate result. Journal and legacy failures have durable retry state. OS suspend pauses the Rust timer naturally; an expired interval and the browser online event resume checking without a Windows-only power-event dependency.
 
 ## Trust boundaries
 
