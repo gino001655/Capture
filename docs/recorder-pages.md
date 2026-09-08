@@ -10,6 +10,12 @@ From the repository root:
 pnpm.cmd create:recorder -- reading 閱讀 R
 ```
 
+Preview the affected files without writing anything:
+
+```powershell
+pnpm.cmd create:recorder -- reading 閱讀 R --dry-run
+```
+
 The command validates the id, refuses to overwrite existing work, registers the recorder in the shared catalog, and creates:
 
 - `apps/web/src/app/reading-app.tsx`

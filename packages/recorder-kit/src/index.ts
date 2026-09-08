@@ -6,6 +6,37 @@ export const RECORDER_CATALOG = [
   // recorder-catalog-entry
 ] as const;
 
+export type RecorderManifest = {
+  id: string;
+  order: number;
+  label: string;
+  symbol: string;
+  kind: "core" | "special";
+};
+
+export function validateRecorderCatalog(catalog: readonly RecorderManifest[]): void {
+  const ids = new Set<string>();
+  const orders = new Set<number>();
+  for (const recorder of catalog) {
+    if (!/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/.test(recorder.id)) {
+      throw new Error(`Recorder id must be lowercase kebab-case: ${recorder.id}`);
+    }
+    if (ids.has(recorder.id)) throw new Error(`Duplicate id in recorder catalog: ${recorder.id}`);
+    if (!Number.isSafeInteger(recorder.order) || recorder.order < 0) {
+      throw new Error(`Recorder order must be a non-negative integer: ${recorder.order}`);
+    }
+    if (orders.has(recorder.order)) throw new Error(`Duplicate order in recorder catalog: ${recorder.order}`);
+    if (!recorder.label.trim()) throw new Error(`Recorder label is required: ${recorder.id}`);
+    if (Array.from(recorder.symbol).length < 1 || Array.from(recorder.symbol).length > 4) {
+      throw new Error(`Recorder symbol must contain 1 to 4 characters: ${recorder.id}`);
+    }
+    ids.add(recorder.id);
+    orders.add(recorder.order);
+  }
+}
+
+validateRecorderCatalog(RECORDER_CATALOG);
+
 export type RecorderDefinition = (typeof RECORDER_CATALOG)[number];
 export type RecorderId = RecorderDefinition["id"];
 export type SpecialRecorderId = Exclude<RecorderId, "journal">;

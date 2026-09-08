@@ -8,6 +8,7 @@ import {
   rebaseConflictCandidate,
   resolveVersionedPayloadConflict,
   recorderDefinition,
+  validateRecorderCatalog,
 } from "./index.ts";
 
 test("recorder ids and ordering are stable and unique", () => {
@@ -17,6 +18,29 @@ test("recorder ids and ordering are stable and unique", () => {
   );
   assert.equal(new Set(RECORDER_CATALOG.map(({ id }) => id)).size, RECORDER_CATALOG.length);
   assert.equal(recorderDefinition("english").symbol, "Aa");
+});
+
+test("recorder catalog validation explains contributor mistakes", () => {
+  assert.throws(
+    () => validateRecorderCatalog([
+      { id: "reading", order: 10, label: "Reading", symbol: "R", kind: "special" },
+      { id: "reading", order: 20, label: "Duplicate", symbol: "D", kind: "special" },
+    ]),
+    /duplicate id.*reading/i,
+  );
+  assert.throws(
+    () => validateRecorderCatalog([
+      { id: "bad id", order: 10, label: "Bad", symbol: "toolong", kind: "special" },
+    ]),
+    /lowercase kebab-case/i,
+  );
+  assert.throws(
+    () => validateRecorderCatalog([
+      { id: "one", order: 10, label: "One", symbol: "1", kind: "special" },
+      { id: "two", order: 10, label: "Two", symbol: "2", kind: "special" },
+    ]),
+    /duplicate order.*10/i,
+  );
 });
 
 test("shared recorder autosave binds the queued date and a value snapshot", async () => {

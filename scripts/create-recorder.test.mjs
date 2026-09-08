@@ -76,3 +76,30 @@ test("createRecorder rejects ids that are unsafe as file names", async (t) => {
     /lowercase kebab-case/,
   );
 });
+
+test("createRecorder dry run reports files without changing the repository", async (t) => {
+  const root = await fixture();
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const catalogPath = path.join(root, "packages/recorder-kit/src/index.ts");
+  const before = await readFile(catalogPath, "utf8");
+
+  const files = await createRecorder(
+    { id: "reading", label: "閱讀", symbol: "R" },
+    root,
+    { dryRun: true },
+  );
+
+  assert.equal(await readFile(catalogPath, "utf8"), before);
+  assert.equal(
+    await readFile(path.join(root, "apps/web/src/app/recorder-registry.tsx"), "utf8"),
+    `import { JournalApp } from "./journal-app";\n// recorder-import\n\nfunction JournalRecorder() { return <JournalApp />; }\n// recorder-wrapper\n\nexport const WEB_RECORDER_PAGES = {\n  journal: JournalRecorder,\n  // recorder-entry\n};\n`,
+  );
+  assert.deepEqual(files.sort(), [
+    "apps/desktop/src/capture-pages/reading.page.tsx",
+    "apps/web/src/app/reading-app.tsx",
+  ]);
+  await assert.rejects(
+    readFile(path.join(root, "apps/web/src/app/reading-app.tsx"), "utf8"),
+    /ENOENT/,
+  );
+});

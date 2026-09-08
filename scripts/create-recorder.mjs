@@ -90,7 +90,7 @@ export default {
 `;
 }
 
-export async function createRecorder(input, root = process.cwd()) {
+export async function createRecorder(input, root = process.cwd(), options = {}) {
   const id = input.id?.trim();
   const label = input.label?.trim();
   const symbol = input.symbol?.trim();
@@ -156,6 +156,12 @@ export async function createRecorder(input, root = process.cwd()) {
     registryPath,
   );
 
+  const files = [
+    path.relative(root, webPath).replaceAll("\\", "/"),
+    path.relative(root, desktopPath).replaceAll("\\", "/"),
+  ];
+  if (options.dryRun) return files;
+
   await Promise.all([
     mkdir(path.dirname(webPath), { recursive: true }),
     mkdir(path.dirname(desktopPath), { recursive: true }),
@@ -169,17 +175,16 @@ export async function createRecorder(input, root = process.cwd()) {
     writeFile(registryPath, nextRegistry),
   ]);
 
-  return [
-    path.relative(root, webPath).replaceAll("\\", "/"),
-    path.relative(root, desktopPath).replaceAll("\\", "/"),
-  ];
+  return files;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [id, label, symbol] = process.argv.slice(2);
+  const args = process.argv.slice(2);
+  const dryRun = args.includes("--dry-run");
+  const [id, label, symbol] = args.filter((arg) => arg !== "--dry-run");
   try {
-    const files = await createRecorder({ id, label, symbol });
-    console.log(`Created recorder "${id}":`);
+    const files = await createRecorder({ id, label, symbol }, process.cwd(), { dryRun });
+    console.log(`${dryRun ? "Would create" : "Created"} recorder "${id}":`);
     for (const file of files) console.log(`- ${file}`);
     console.log("Next: replace the starter textareas and add a versioned data contract if the recorder syncs.");
   } catch (error) {
