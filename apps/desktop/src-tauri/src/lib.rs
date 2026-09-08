@@ -1,5 +1,6 @@
 mod ai_provider;
 mod config;
+mod destination;
 mod journal;
 mod special;
 mod processor;

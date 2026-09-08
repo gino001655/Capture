@@ -7,6 +7,8 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 
+use crate::destination::CaptureDestination;
+
 struct HeptabasePaths {
     heptabase_runtime: PathBuf,
     heptabase_cli_script: PathBuf,
@@ -54,15 +56,12 @@ pub(crate) fn process_capture(
     ai_model: Option<&str>,
 ) -> Result<String, String> {
     let provider = crate::ai_provider::AiProvider::load(ai_provider, ai_model)?;
-    let paths = HeptabasePaths::discover()?;
+    let destination = HeptabasePaths::discover()?;
     let note_path = temporary_note_path();
 
     let result = (|| {
         provider.write_markdown(content, &note_path)?;
-        ensure_heptabase_ready(&paths)?;
-        let note = create_heptabase_note(&paths, &note_path)?;
-
-        Ok(format!("Heptabase card {}: {}", note.id, note.title))
+        destination.create_note(&note_path)
     })();
 
     let _ = fs::remove_file(&note_path);
@@ -82,31 +81,43 @@ pub(crate) fn process_journal_delivery(
         return Err("Journal delivery contained no text.".to_owned());
     }
 
-    let paths = HeptabasePaths::discover()?;
-    let note_path = temporary_markdown_path("journal");
-    let result = (|| {
-        ensure_heptabase_ready(&paths)?;
-        let current = read_heptabase_journal(&paths, journal_date)?;
-        let append_markdown = if journal_has_content(&current.content) {
-            format!("---\n\n{markdown}")
-        } else {
-            markdown
-        };
-        fs::write(&note_path, append_markdown)
-            .map_err(|error| format!("Could not prepare Journal Markdown: {error}"))?;
-        let appended =
-            append_heptabase_journal(&paths, journal_date, &note_path, &current.content_md5)?;
+    HeptabasePaths::discover()?.append_journal(journal_date, &markdown, records.len())
+}
 
-        Ok(format!(
-            "Heptabase Journal {} contentMd5 {} ({} records)",
-            appended.date,
-            appended.content_md5,
-            records.len()
-        ))
-    })();
+impl CaptureDestination for HeptabasePaths {
+    fn create_note(&self, markdown_path: &Path) -> Result<String, String> {
+        ensure_heptabase_ready(self)?;
+        let note = create_heptabase_note(self, markdown_path)?;
+        Ok(format!("Heptabase card {}: {}", note.id, note.title))
+    }
 
-    let _ = fs::remove_file(&note_path);
-    result
+    fn append_journal(
+        &self,
+        journal_date: &str,
+        markdown: &str,
+        record_count: usize,
+    ) -> Result<String, String> {
+        let note_path = temporary_markdown_path("journal");
+        let result = (|| {
+            ensure_heptabase_ready(self)?;
+            let current = read_heptabase_journal(self, journal_date)?;
+            let append_markdown = if journal_has_content(&current.content) {
+                format!("---\n\n{markdown}")
+            } else {
+                markdown.to_owned()
+            };
+            fs::write(&note_path, append_markdown)
+                .map_err(|error| format!("Could not prepare Journal Markdown: {error}"))?;
+            let appended =
+                append_heptabase_journal(self, journal_date, &note_path, &current.content_md5)?;
+            Ok(format!(
+                "Heptabase Journal {} contentMd5 {} ({} records)",
+                appended.date, appended.content_md5, record_count
+            ))
+        })();
+        let _ = fs::remove_file(&note_path);
+        result
+    }
 }
 
 impl HeptabasePaths {

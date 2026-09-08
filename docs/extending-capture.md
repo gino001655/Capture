@@ -31,9 +31,15 @@ The daily Journal delivery intentionally does not use AI yet. Its deterministic 
 
 ## Add a destination
 
-Heptabase is currently the only destination. Its local CLI adapter lives in `apps/desktop/src-tauri/src/processor.rs`; Cloud never receives Heptabase credentials. A new destination should consume prepared content and return a stable external result identifier. Do not mix destination calls into recorder UI components.
+Heptabase is currently the only destination. The stable contract is `CaptureDestination` in `apps/desktop/src-tauri/src/destination.rs`; its local CLI implementation currently lives beside the deterministic formatters in `processor.rs`. Cloud never receives destination credentials. A new adapter consumes prepared Markdown and returns a stable receipt without changing the worker, recorder UI, or Cloud API.
 
 ## Data and secrets
+
+### Replace the database
+
+Route-handler factories such as `createWorkoutHandler` and `createFoodHandler` accept narrow domain-store ports (`get`, `list`, and `save`). The exported Next.js routes inject the MongoDB stores only at the bottom of each route file. A fork can implement the same typed port with another database and change that composition line; UI and domain validation remain unchanged.
+
+Capture intentionally does not expose one untyped JSON repository for every recorder. Each recorder keeps its versioned schema and conflict rules, while the adapter boundary stays small and test fakes use the same port.
 
 - Web secrets belong in `apps/web/.env.local` or the deployment platform.
 - Desktop development secrets belong in `apps/desktop/src-tauri/.env.local`.
