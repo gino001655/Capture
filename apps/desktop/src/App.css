@@ -835,3 +835,54 @@ button:disabled {
     transition: none;
   }
 }
+
+.desktopWorkout {
+  display: grid;
+  grid-template-rows: 34px minmax(0, 1fr);
+  color: var(--ink);
+  overflow: hidden;
+}
+.desktopWorkout > header { display: grid; grid-template-columns: 1fr 30px; align-items: center; border-bottom: 1px solid var(--line); }
+.desktopWorkout > header label { position: relative; display: grid; place-items: center; height: 100%; font-size: 0.76rem; }
+.desktopWorkout > header input { position: absolute; inset: 0; width: 100%; opacity: 0; }
+.desktopWorkout > header span { text-align: center; }
+.desktopWorkout > section { min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.desktopWorkout > section::-webkit-scrollbar { display: none; }
+.desktopWorkoutEmpty { min-height: 320px; display: flex; flex-wrap: wrap; place-content: center; gap: 8px; }
+.desktopWorkoutEmpty button { width: 100%; font-size: 1.8rem; }
+.desktopWorkoutEmpty small { opacity: 0.5; }
+.desktopWorkoutSession { display: grid; grid-template-columns: 1fr 36px; border-bottom: 1px solid var(--line); }
+.desktopWorkout input,
+.desktopWorkout textarea,
+.desktopWorkout button { border: 0; outline: 0; background: transparent; color: inherit; }
+.desktopWorkoutSession input { padding: 10px 12px; font-weight: 700; }
+.desktopWorkout article { padding: 10px 12px; border-bottom: 1px solid var(--line); }
+.desktopExerciseName { width: 100%; padding: 3px 0 8px; font-weight: 700; }
+.desktopSet { display: grid; grid-template-columns: 20px repeat(4, 1fr) 28px; gap: 4px; align-items: center; padding: 3px 0; transition: opacity 120ms ease; }
+.desktopSet.ghost { opacity: 0.42; }
+.desktopSet.labels { opacity: 0.42; font-size: 0.58rem; text-align: center; }
+.desktopSet input { min-width: 0; width: 100%; padding: 5px 1px; border-bottom: 1px solid var(--line); text-align: center; }
+.desktopSet > span { text-align: center; opacity: 0.5; font-size: 0.7rem; }
+.desktopSetMeta { display: grid; grid-template-columns: 68px 1fr; gap: 5px; margin: 0 28px 4px 20px; }
+.desktopSetMeta select,
+.desktopSetMeta input,
+.desktopSegments input { min-width: 0; border: 0; border-bottom: 1px solid var(--line); padding: 4px 1px; background: transparent; color: inherit; font: inherit; font-size: 0.64rem; }
+.desktopAddSet { padding: 6px 0 !important; opacity: 0.55; }
+.desktopWorkout article textarea,
+.desktopSessionNote { width: 100%; min-height: 34px; resize: none; padding: 7px 0; }
+.desktopAddExercise { display: grid; grid-template-columns: 1fr 34px 34px; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.desktopAddExercise > input { padding: 6px 0; }
+.desktopAddExercise > div { grid-column: 1 / -1; display: flex; gap: 4px; overflow-x: auto; }
+.desktopAddExercise > div button { white-space: nowrap; opacity: 0.5; font-size: 0.66rem; }
+.desktopSessionNote { padding: 10px 12px; }
+.desktopRest { position: sticky; bottom: 8px; display: flex; align-items: center; gap: 6px; width: max-content; margin: 8px auto; padding: 5px 8px; border: 1px solid var(--line); background: var(--paper); }
+.desktopRest strong { min-width: 44px; font-variant-numeric: tabular-nums; }
+.desktopRun > div:first-child { display: flex; justify-content: space-between; align-items: center; }
+.desktopRun > div:first-child strong { font-size: 0.7rem; font-variant-numeric: tabular-nums; }
+.desktopRunGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.desktopRunGrid label { display: grid; gap: 2px; opacity: 0.65; font-size: 0.58rem; }
+.desktopRunGrid input { width: 100%; border-bottom: 1px solid var(--line); padding: 5px 1px; }
+.desktopSegments { display: grid; gap: 4px; margin-top: 8px; }
+.desktopSegments > div { display: grid; grid-template-columns: 18px 1fr 1fr; gap: 5px; align-items: center; }
+.desktopSegments > div span { opacity: 0.45; font-size: 0.62rem; text-align: center; }
+.desktopSegments > button { justify-self: start; opacity: 0.55; }

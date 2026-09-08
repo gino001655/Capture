@@ -747,6 +747,152 @@ button:disabled {
   .journalSettings { animation: none; }
 }
 
+.workoutShell {
+  --workout-line: color-mix(in srgb, currentColor 16%, transparent);
+  position: relative;
+  display: grid;
+  grid-template-rows: 42px minmax(0, 1fr) 52px;
+  width: min(100%, 680px);
+  min-height: 100dvh;
+  margin: 0 auto;
+  overflow: hidden;
+  overscroll-behavior: none;
+  background: var(--journal-paper, #fff);
+  color: var(--journal-ink, #090909);
+  text-align: start;
+}
+
+.workoutToolbar {
+  display: grid;
+  grid-template-columns: 42px 1fr 42px;
+  align-items: center;
+  border-bottom: 1px solid var(--workout-line);
+}
+
+.workoutToolbar button,
+.workoutToolbar label {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: inherit;
+}
+
+.workoutToolbar input { position: absolute; inset: 0; width: 100%; opacity: 0; }
+.workoutSync { display: grid; place-items: center; min-height: 42px; }
+.workoutSync.pending { animation: workout-pulse 1s ease-in-out infinite alternate; }
+
+.workoutBody,
+.workoutHistory {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+.workoutBody::-webkit-scrollbar,
+.workoutHistory::-webkit-scrollbar { display: none; }
+
+.workoutHistory button {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 10px;
+  width: 100%;
+  padding: 13px;
+  border: 0;
+  border-bottom: 1px solid var(--workout-line);
+  background: transparent;
+  color: inherit;
+  text-align: start;
+}
+.workoutHistory time { opacity: 0.55; font-size: 0.72rem; }
+
+.sessionTabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--workout-line); }
+.sessionTabs button { min-width: 44px; padding: 8px 12px; border: 0; background: transparent; color: inherit; opacity: 0.45; }
+.sessionTabs button.active { opacity: 1; box-shadow: inset 0 -2px currentColor; }
+
+.emptyWorkout { min-height: 70dvh; display: grid; place-content: center; gap: 18px; text-align: center; }
+.emptyWorkout > button { border: 0; background: transparent; color: inherit; font-size: 2rem; }
+.emptyWorkout div { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; opacity: 0.5; font-size: 0.74rem; }
+
+.workoutSession { position: relative; padding-bottom: 90px; }
+.workoutSession.locked { opacity: 0.72; }
+.sessionHeader { display: grid; grid-template-columns: 1fr 42px; border-bottom: 1px solid var(--workout-line); }
+.sessionHeader input,
+.sessionHeader button,
+.exerciseName,
+.addExercise input,
+.addExercise button,
+.strengthExercise textarea,
+.runningExercise textarea,
+.sessionNote {
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.sessionHeader input { padding: 12px 14px; font-weight: 650; }
+.sessionHeader button { background: transparent; color: inherit; }
+
+.strengthExercise,
+.runningExercise { padding: 12px 12px 14px; border-bottom: 1px solid var(--workout-line); }
+.exerciseName { width: 100%; padding: 3px 2px 10px; font-size: 1rem; font-weight: 700; }
+.setLabels,
+.workoutSet { display: grid; grid-template-columns: 24px repeat(4, minmax(0, 1fr)) 34px; gap: 5px; align-items: center; }
+.setLabels { opacity: 0.42; font-size: 0.62rem; text-align: center; }
+.workoutSet { padding: 4px 0; transition: opacity 140ms ease, background-color 140ms ease; }
+.workoutSet.ghost { opacity: 0.42; }
+.workoutSet.confirmed { opacity: 1; }
+.workoutSet > span { text-align: center; font-size: 0.72rem; opacity: 0.55; }
+.workoutSet input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-bottom: 1px solid var(--workout-line);
+  padding: 7px 2px;
+  background: transparent;
+  color: inherit;
+  text-align: center;
+}
+.workoutSet button,
+.cloneSet { border: 0; background: transparent; color: inherit; padding: 6px; }
+.workoutSetMeta { display: grid; grid-template-columns: 72px 1fr; gap: 6px; margin: 0 34px 5px 24px; }
+.workoutSetMeta select,
+.workoutSetMeta input,
+.runSegments input,
+.runSegments button { min-width: 0; border: 0; border-bottom: 1px solid var(--workout-line); padding: 5px 2px; background: transparent; color: inherit; font: inherit; font-size: 0.7rem; }
+.cloneSet { margin-top: 4px; opacity: 0.7; }
+.strengthExercise textarea,
+.runningExercise textarea,
+.sessionNote { width: 100%; min-height: 38px; resize: vertical; padding: 9px 2px; }
+
+.addExercise { display: grid; grid-template-columns: 1fr 38px 38px; border-bottom: 1px solid var(--workout-line); padding: 8px 12px; }
+.addExercise input { padding: 8px 2px; }
+.addExercise > div { grid-column: 1 / -1; display: flex; gap: 6px; overflow-x: auto; }
+.addExercise > div button { white-space: nowrap; opacity: 0.55; font-size: 0.7rem; }
+
+.runningExercise > div:first-child { display: flex; justify-content: space-between; align-items: center; }
+.runningExercise > div:first-child strong { font-size: 0.78rem; font-variant-numeric: tabular-nums; }
+.runGrid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.runGrid label { display: grid; gap: 3px; opacity: 0.65; font-size: 0.65rem; }
+.runGrid input { width: 100%; border: 0; border-bottom: 1px solid var(--workout-line); padding: 6px 2px; background: transparent; color: inherit; }
+.runSegments { display: grid; gap: 4px; margin-top: 10px; }
+.runSegments > div { display: grid; grid-template-columns: 22px 1fr 1fr; gap: 6px; align-items: center; }
+.runSegments > div span { opacity: 0.45; font-size: 0.68rem; text-align: center; }
+.runSegments > button { justify-self: start; border-bottom: 0; opacity: 0.58; }
+
+.sessionNote { padding: 12px 14px; }
+.restTimer { position: sticky; bottom: 8px; display: flex; align-items: center; justify-content: center; gap: 6px; width: max-content; margin: 8px auto; padding: 5px 8px; border: 1px solid var(--workout-line); background: color-mix(in srgb, var(--journal-paper, #fff) 92%, transparent); backdrop-filter: blur(8px); }
+.restTimer strong { min-width: 48px; font-variant-numeric: tabular-nums; }
+.restTimer button { border: 0; padding: 5px; background: transparent; color: inherit; }
+.newSession { display: block; margin: 10px auto; border: 0; background: transparent; color: inherit; opacity: 0.55; }
+.workoutLock { position: absolute; right: 12px; bottom: 12px; }
+
+@keyframes workout-pulse { to { opacity: 0.2; } }
+
 main:not(.journalShell):not(.englishShell):not(.specialPlaceholder) {
   display: grid;
   width: min(100%, 64rem);

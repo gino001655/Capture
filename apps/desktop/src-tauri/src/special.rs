@@ -45,10 +45,49 @@ struct EnglishListResponse {
     records: Vec<EnglishRecord>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkoutRecord {
+    id: String,
+    module_id: String,
+    journal_date: String,
+    payload: Value,
+    revision: u64,
+    processing_state: String,
+    created_at: String,
+    updated_at: String,
+    locked_at: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkoutSaveInput {
+    journal_date: String,
+    payload: Value,
+    expected_revision: Option<u64>,
+    client_updated_at: String,
+}
+
+#[derive(Deserialize)]
+struct WorkoutResponse {
+    record: Option<WorkoutRecord>,
+}
+
+#[derive(Deserialize)]
+struct WorkoutListResponse {
+    records: Vec<WorkoutRecord>,
+}
+
 fn error_message(status: u16, body: &str) -> String {
     serde_json::from_str::<Value>(body)
         .ok()
-        .and_then(|value| value.get("error")?.get("message")?.as_str().map(str::to_owned))
+        .and_then(|value| {
+            value
+                .get("error")?
+                .get("message")?
+                .as_str()
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| format!("English API returned {status}."))
 }
 
@@ -121,6 +160,69 @@ pub(crate) async fn save_english_record(
         Some(&input),
     )
     .await
+}
+
+#[tauri::command]
+pub(crate) async fn get_workout_record(
+    app: AppHandle,
+    journal_date: String,
+) -> Result<Option<WorkoutRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .get(config.endpoint(&format!("api/special-records/workout?date={journal_date}")))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Workout API: {error}"))?;
+    decode_workout_response(response).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_workout_records(app: AppHandle) -> Result<Vec<WorkoutRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .get(config.endpoint("api/special-records/workout"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Workout API: {error}"))?;
+    let status = response.status();
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(error_message(status.as_u16(), &body));
+    }
+    serde_json::from_str::<WorkoutListResponse>(&body)
+        .map(|payload| payload.records)
+        .map_err(|error| format!("Workout API response was invalid: {error}"))
+}
+
+#[tauri::command]
+pub(crate) async fn save_workout_record(
+    app: AppHandle,
+    input: WorkoutSaveInput,
+) -> Result<Option<WorkoutRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .put(config.endpoint("api/special-records/workout"))
+        .bearer_auth(&config.device_token)
+        .json(&input)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Workout API: {error}"))?;
+    decode_workout_response(response).await
+}
+
+async fn decode_workout_response(
+    response: reqwest::Response,
+) -> Result<Option<WorkoutRecord>, String> {
+    let status = response.status();
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(error_message(status.as_u16(), &body));
+    }
+    serde_json::from_str::<WorkoutResponse>(&body)
+        .map(|payload| payload.record)
+        .map_err(|error| format!("Workout API response was invalid: {error}"))
 }
 
 #[cfg(test)]

@@ -3,6 +3,7 @@ import type { RecorderId } from "@capture/recorder-kit";
 
 import { EnglishApp } from "./english-app";
 import { JournalApp } from "./journal-app";
+import { WorkoutApp } from "./workout-app";
 import { ModuleRail } from "./module-rail";
 
 export type WebRecorderProps = {
@@ -25,6 +26,10 @@ function EnglishRecorder({ active, onSelectModule }: WebRecorderProps) {
   return <EnglishApp active={active} onSelectModule={onSelectModule} />;
 }
 
+function WorkoutRecorder({ active, onSelectModule }: WebRecorderProps) {
+  return <WorkoutApp active={active} onSelectModule={onSelectModule} />;
+}
+
 function placeholder(id: Extract<RecorderId, "workout" | "food">) {
   return function Placeholder({ active, onSelectModule }: WebRecorderProps) {
     return active ? (
@@ -43,6 +48,6 @@ function placeholder(id: Extract<RecorderId, "workout" | "food">) {
 export const WEB_RECORDER_PAGES = {
   journal: JournalRecorder,
   english: EnglishRecorder,
-  workout: placeholder("workout"),
+  workout: WorkoutRecorder,
   food: placeholder("food"),
 } satisfies Record<RecorderId, ComponentType<WebRecorderProps>>;
