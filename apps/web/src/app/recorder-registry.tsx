@@ -5,6 +5,7 @@ import { EnglishApp } from "./english-app";
 import { JournalApp } from "./journal-app";
 import { WorkoutApp } from "./workout-app";
 import { FoodApp } from "./food-app";
+// recorder-import
 
 export type WebRecorderProps = {
   accountEmail: string;
@@ -33,6 +34,7 @@ function WorkoutRecorder({ active, onSelectModule }: WebRecorderProps) {
 function FoodRecorder({ active, onSelectModule }: WebRecorderProps) {
   return <FoodApp active={active} onSelectModule={onSelectModule} />;
 }
+// recorder-wrapper
 
 /**
  * Web pages are explicit because Next.js does not provide Vite's import.meta.glob.
@@ -44,4 +46,5 @@ export const WEB_RECORDER_PAGES = {
   english: EnglishRecorder,
   workout: WorkoutRecorder,
   food: FoodRecorder,
+  // recorder-entry
 } satisfies Record<RecorderId, ComponentType<WebRecorderProps>>;

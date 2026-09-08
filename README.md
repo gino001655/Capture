@@ -105,4 +105,5 @@ Web capture
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Extending recorders, AI, and destinations](docs/extending-capture.md)
+- [Recorder page creation guide](docs/recorder-pages.md)
 - [Collaboration rules](AGENTS.md)

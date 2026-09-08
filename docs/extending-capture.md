@@ -4,6 +4,16 @@ Capture keeps recorder metadata, platform UI, Cloud persistence, processors, and
 
 ## Add a recorder
 
+For the page contract, UX rules, generator, and verification checklist, see [Recorder Page Guide](recorder-pages.md).
+
+The quickest path is:
+
+```powershell
+pnpm.cmd create:recorder -- reading 閱讀 R
+```
+
+The generator performs the catalog and registry edits described below and creates both platform starters.
+
 1. Add its id, order, accessible label, and compact symbol to `packages/recorder-kit/src/index.ts`. This catalog is the single source of truth for both clients.
 2. Add the mobile page component to `apps/web/src/app/recorder-registry.tsx`. The `satisfies Record<RecorderId, ...>` check deliberately makes the build fail until every catalog entry has a Web page.
 3. Add `apps/desktop/src/capture-pages/<id>.page.tsx`. Vite discovers every `*.page.tsx` file automatically. Export `{ id, Component } satisfies CapturePageDefinition`; ordering comes from the shared catalog.
@@ -51,5 +61,4 @@ Capture intentionally does not expose one untyped JSON repository for every reco
 
 - Authentication is intentionally single-user through one allowed email and one Desktop token.
 - The Desktop integration targets Windows, Codex CLI, and Heptabase Desktop.
-- A public license still needs to be selected before accepting outside contributions.
 - Adding a Web recorder requires one explicit registry entry because Next.js does not provide Vite's build-time glob import.

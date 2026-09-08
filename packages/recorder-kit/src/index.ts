@@ -3,6 +3,7 @@ export const RECORDER_CATALOG = [
   { id: "english", order: 10, label: "英文", symbol: "Aa", kind: "special" },
   { id: "workout", order: 20, label: "重訓", symbol: "↟", kind: "special" },
   { id: "food", order: 30, label: "飲食", symbol: "◫", kind: "special" },
+  // recorder-catalog-entry
 ] as const;
 
 export type RecorderDefinition = (typeof RECORDER_CATALOG)[number];
