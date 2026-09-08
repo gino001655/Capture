@@ -11,6 +11,8 @@ import type {
   WorkoutSet,
 } from "../../../web/src/lib/workout-record";
 import { emptyWorkoutPayload } from "../../../web/src/lib/workout-record";
+import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../../../web/src/lib/workout-library";
+import { emptyWorkoutLibrary } from "../../../web/src/lib/workout-library";
 import { shiftJournalDate } from "../journal";
 import type { CapturePageDefinition, CapturePageProps } from "./types";
 
@@ -40,6 +42,9 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   const [date, setDate] = useState(today);
   const [local, setLocal] = useState<LocalWorkout>(() => readCache()[today] ?? { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() });
   const [history, setHistory] = useState<WorkoutRecord[]>([]);
+  const [library, setLibrary] = useState<WorkoutLibraryPayload>(emptyWorkoutLibrary);
+  const [libraryRevision, setLibraryRevision] = useState<number | null>(null);
+  const [libraryOpen, setLibraryOpen] = useState(false);
   const [name, setName] = useState("");
   const [issue, setIssue] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -88,14 +93,14 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
     } catch { setIssue(true); }
   }, [publish, sync]);
 
-  useEffect(() => { void load(today); void invoke<WorkoutRecord[]>("list_workout_records").then(setHistory).catch(() => setIssue(true)); }, [load, today]);
+  useEffect(() => { void load(today); void invoke<WorkoutRecord[]>("list_workout_records").then(setHistory).catch(() => setIssue(true)); void invoke<WorkoutLibraryRecord | null>("get_workout_library").then((record) => { setLibrary(record?.payload ?? emptyWorkoutLibrary()); setLibraryRevision(record?.revision ?? null); }).catch(() => setIssue(true)); }, [load, today]);
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1_000); return () => window.clearInterval(id); }, []);
 
   const recent = useMemo(() => {
-    const names: string[] = [];
+    const names = library.entries.filter((entry) => !entry.archived).sort((left, right) => left.order - right.order).map((entry) => entry.name);
     for (const record of history) for (const item of record.payload.sessions) for (const exercise of item.exercises) if (!names.includes(exercise.name)) names.push(exercise.name);
     return names.slice(0, 5);
-  }, [history]);
+  }, [history, library]);
 
   function keyNavigation(event: KeyboardEvent<HTMLElement>) {
     if (!event.ctrlKey) return;
@@ -107,16 +112,22 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
     if (!activeSession) return;
     mutate((payload) => { const target = payload.sessions.find((item) => item.id === activeSession.id); if (target) change(target); });
   }
-  function previous(exerciseName: string) {
+  function previous(exerciseName: string, libraryEntryId?: string) {
     for (const record of history) for (const item of record.payload.sessions) {
-      const found = item.exercises.find((exercise): exercise is StrengthExercise => exercise.kind === "strength" && exercise.name.toLowerCase() === exerciseName.toLowerCase());
+      const found = item.exercises.find((exercise): exercise is StrengthExercise => exercise.kind === "strength" && (
+        (libraryEntryId !== undefined && exercise.libraryEntryId === libraryEntryId) ||
+        (!exercise.libraryEntryId && exercise.name.toLowerCase() === exerciseName.toLowerCase())
+      ));
       if (found) return found;
     }
   }
-  function stats(exerciseName: string) {
+  function stats(exerciseName: string, libraryEntryId?: string) {
     let sessions = 0; let maximumWeight: number | null = null; let estimatedOneRepMax: number | null = null; let recentNote = "";
     for (const record of history) for (const session of record.payload.sessions) for (const exercise of session.exercises) {
-      if (exercise.kind !== "strength" || exercise.name.toLocaleLowerCase() !== exerciseName.toLocaleLowerCase()) continue;
+      if (exercise.kind !== "strength" || !(
+        (libraryEntryId !== undefined && exercise.libraryEntryId === libraryEntryId) ||
+        (!exercise.libraryEntryId && exercise.name.toLocaleLowerCase() === exerciseName.toLocaleLowerCase())
+      )) continue;
       sessions += 1;
       if (!recentNote && exercise.note.trim()) recentNote = exercise.note.trim();
       for (const set of exercise.sets) {
@@ -128,9 +139,29 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   }
   function addExercise(raw: string) {
     const exerciseName = raw.trim(); if (!exerciseName || !activeSession) return;
-    const old = previous(exerciseName);
-    updateSession((target) => target.exercises.push({ id: crypto.randomUUID(), kind: "strength", name: exerciseName, note: "", sets: old?.sets.length ? old.sets.map(blankSet) : [blankSet()] }));
+    let entry = library.entries.find((item) => item.name.toLocaleLowerCase() === exerciseName.toLocaleLowerCase());
+    if (!entry) {
+      entry = { id: crypto.randomUUID(), name: exerciseName, order: library.entries.length, archived: false };
+      void saveLibrary({ ...library, entries: [...library.entries, entry] });
+    }
+    const old = previous(exerciseName, entry.id);
+    updateSession((target) => target.exercises.push({ id: crypto.randomUUID(), kind: "strength", libraryEntryId: entry.id, name: exerciseName, note: "", sets: old?.sets.length ? old.sets.map(blankSet) : [blankSet()] }));
     setName("");
+  }
+  async function saveLibrary(next: WorkoutLibraryPayload) {
+    setLibrary(next);
+    try {
+      const record = await invoke<WorkoutLibraryRecord | null>("save_workout_library", { input: { payload: next, expectedRevision: libraryRevision } });
+      setLibrary(record?.payload ?? next); setLibraryRevision(record?.revision ?? libraryRevision); setIssue(false);
+    } catch { setIssue(true); }
+  }
+  function libraryEntryUsed(entry: WorkoutLibraryEntry) {
+    return history.some((record) => record.payload.sessions.some((session) =>
+      session.exercises.some((exercise) => exercise.kind === "strength" && (
+        exercise.libraryEntryId === entry.id ||
+        (!exercise.libraryEntryId && exercise.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase())
+      )),
+    ));
   }
   function addRun() {
     if (!activeSession) return;
@@ -148,13 +179,13 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   }
 
   return <main className="captureExtensionPage desktopWorkout viewEnter" aria-label="重訓紀錄" tabIndex={0} onKeyDown={keyNavigation}>
-    <header><label>{date.slice(5).replace("-", ".")}<input type="date" max={today} value={date} onChange={(event) => void load(event.target.value)} /></label><span>{issue ? "!" : local.pending ? "·" : ""}</span></header>
+    <header><button onClick={() => setLibraryOpen((open) => !open)}>≡</button><label>{date.slice(5).replace("-", ".")}<input type="date" max={today} value={date} onChange={(event) => void load(event.target.value)} /></label><span>{issue ? "!" : local.pending ? "·" : ""}</span></header>
     <section>
-      {!activeSession ? <div className="desktopWorkoutEmpty"><button disabled={!editable} onClick={() => mutate((payload) => payload.sessions.push(newSession()))}>＋</button>{recent.map((item) => <small key={item}>{item}</small>)}</div> : <>
+      {libraryOpen ? <div className="desktopLibrary">{library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}><input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const nextName = event.target.value.trim(); if (nextName) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name: nextName } : item) }); }} /><button disabled={index === 0} onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↑</button><button disabled={index === entries.length - 1} onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↓</button><button onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "◇" : "—"}</button>{!libraryEntryUsed(entry) ? <button onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>×</button> : <span />}</div>)}</div> : !activeSession ? <div className="desktopWorkoutEmpty"><button disabled={!editable} onClick={() => mutate((payload) => payload.sessions.push(newSession()))}>＋</button>{recent.map((item) => <small key={item}>{item}</small>)}</div> : <>
         <div className="desktopWorkoutSession"><input placeholder="訓練" value={activeSession.name} disabled={!editable} onChange={(event) => updateSession((target) => { target.name = event.target.value; })} /><button disabled={!editable} onClick={() => updateSession((target) => { target.completedAt = target.completedAt ? null : new Date().toISOString(); })}>{activeSession.completedAt ? "↶" : "✓"}</button></div>
         {activeSession.exercises.map((exercise: WorkoutExercise) => exercise.kind === "strength" ? <article key={exercise.id}>
           <input className="desktopExerciseName" value={exercise.name} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { target.name = event.target.value; })} />
-          {(() => { const summary = stats(exercise.name); return summary.sessions ? <div className="desktopStrengthStats"><span>{summary.sessions} 次</span>{summary.maximumWeight !== null ? <span>max {summary.maximumWeight} kg</span> : null}{summary.estimatedOneRepMax !== null ? <span>e1RM {summary.estimatedOneRepMax}</span> : null}{summary.recentNote ? <small>{summary.recentNote}</small> : null}</div> : null; })()}
+          {(() => { const summary = stats(exercise.name, exercise.libraryEntryId); return summary.sessions ? <div className="desktopStrengthStats"><span>{summary.sessions} 次</span>{summary.maximumWeight !== null ? <span>max {summary.maximumWeight} kg</span> : null}{summary.estimatedOneRepMax !== null ? <span>e1RM {summary.estimatedOneRepMax}</span> : null}{summary.recentNote ? <small>{summary.recentNote}</small> : null}</div> : null; })()}
           <div className="desktopSet labels"><span>#</span><span>kg</span><span>次</span><span>RPE</span><span>RIR</span><span /></div>
           {exercise.sets.map((set: WorkoutSet, index: number) => <div key={set.id} className="desktopSetBlock"><div className={set.confirmed ? "desktopSet" : "desktopSet ghost"}><span>{index + 1}</span>{(["weightKg", "reps", "rpe", "rir"] as const).map((key) => <input key={key} type="number" value={set[key] ?? ""} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index][key] = numeric(event.target.value); })} />)}<button disabled={!editable} onClick={() => updateSession((target) => { const item = target.exercises.find((candidate) => candidate.id === exercise.id); if (item?.kind === "strength") item.sets[index].confirmed = true; target.restTimer = { startedAt: new Date().toISOString(), elapsedSeconds: 0, running: true }; })}>{set.confirmed ? "✓" : "○"}</button></div><div className="desktopSetMeta"><select value={set.type} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index].type = event.target.value as WorkoutSet["type"]; })}><option value="working">正式</option><option value="warmup">熱身</option><option value="drop">遞減</option><option value="failure">力竭</option></select><input placeholder="這組註記" value={set.note} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index].note = event.target.value; })} /></div></div>)}
           {editable ? <button className="desktopAddSet" onClick={() => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets.push(blankSet(target.sets[target.sets.length - 1])); })}>＋ set</button> : null}

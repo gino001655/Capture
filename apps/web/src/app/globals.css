@@ -807,6 +807,13 @@ button:disabled {
   text-align: start;
 }
 .workoutHistory time { opacity: 0.55; font-size: 0.72rem; }
+.workoutLibrary { border-bottom: 1px solid var(--workout-line); padding: 8px 10px; }
+.workoutLibrary > div { display: grid; grid-template-columns: 1fr repeat(4, 28px); align-items: center; }
+.workoutLibrary > div.archived { opacity: 0.4; }
+.workoutLibrary input,
+.workoutLibrary button { min-width: 0; border: 0; padding: 7px 3px; background: transparent; color: inherit; }
+.workoutLibrary input { border-bottom: 1px solid transparent; }
+.workoutLibrary input:focus { border-bottom-color: var(--workout-line); outline: 0; }
 
 .sessionTabs { display: flex; overflow-x: auto; border-bottom: 1px solid var(--workout-line); }
 .sessionTabs button { min-width: 44px; padding: 8px 12px; border: 0; background: transparent; color: inherit; opacity: 0.45; }

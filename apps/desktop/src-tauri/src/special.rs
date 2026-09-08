@@ -78,6 +78,29 @@ struct WorkoutListResponse {
     records: Vec<WorkoutRecord>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkoutLibraryRecord {
+    id: String,
+    module_id: String,
+    payload: Value,
+    revision: u64,
+    created_at: String,
+    updated_at: String,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct WorkoutLibrarySaveInput {
+    payload: Value,
+    expected_revision: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct WorkoutLibraryResponse {
+    record: Option<WorkoutLibraryRecord>,
+}
+
 fn error_message(status: u16, body: &str) -> String {
     serde_json::from_str::<Value>(body)
         .ok()
@@ -223,6 +246,49 @@ async fn decode_workout_response(
     serde_json::from_str::<WorkoutResponse>(&body)
         .map(|payload| payload.record)
         .map_err(|error| format!("Workout API response was invalid: {error}"))
+}
+
+async fn decode_workout_library_response(
+    response: reqwest::Response,
+) -> Result<Option<WorkoutLibraryRecord>, String> {
+    let status = response.status();
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(error_message(status.as_u16(), &body));
+    }
+    serde_json::from_str::<WorkoutLibraryResponse>(&body)
+        .map(|payload| payload.record)
+        .map_err(|error| format!("Workout library API response was invalid: {error}"))
+}
+
+#[tauri::command]
+pub(crate) async fn get_workout_library(
+    app: AppHandle,
+) -> Result<Option<WorkoutLibraryRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .get(config.endpoint("api/special-records/workout/library"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Workout library API: {error}"))?;
+    decode_workout_library_response(response).await
+}
+
+#[tauri::command]
+pub(crate) async fn save_workout_library(
+    app: AppHandle,
+    input: WorkoutLibrarySaveInput,
+) -> Result<Option<WorkoutLibraryRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .put(config.endpoint("api/special-records/workout/library"))
+        .bearer_auth(&config.device_token)
+        .json(&input)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Workout library API: {error}"))?;
+    decode_workout_library_response(response).await
 }
 
 #[cfg(test)]

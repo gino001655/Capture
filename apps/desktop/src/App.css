@@ -842,15 +842,20 @@ button:disabled {
   color: var(--ink);
   overflow: hidden;
 }
-.desktopWorkout > header { display: grid; grid-template-columns: 1fr 30px; align-items: center; border-bottom: 1px solid var(--line); }
+.desktopWorkout > header { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; border-bottom: 1px solid var(--line); }
 .desktopWorkout > header label { position: relative; display: grid; place-items: center; height: 100%; font-size: 0.76rem; }
 .desktopWorkout > header input { position: absolute; inset: 0; width: 100%; opacity: 0; }
 .desktopWorkout > header span { text-align: center; }
+.desktopWorkout > header button { height: 100%; }
 .desktopWorkout > section { min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .desktopWorkout > section::-webkit-scrollbar { display: none; }
 .desktopWorkoutEmpty { min-height: 320px; display: flex; flex-wrap: wrap; place-content: center; gap: 8px; }
 .desktopWorkoutEmpty button { width: 100%; font-size: 1.8rem; }
 .desktopWorkoutEmpty small { opacity: 0.5; }
+.desktopLibrary { padding: 8px 10px; }
+.desktopLibrary > div { display: grid; grid-template-columns: 1fr repeat(4, 26px); align-items: center; }
+.desktopLibrary > div.archived { opacity: 0.4; }
+.desktopLibrary input { min-width: 0; padding: 7px 2px; border-bottom: 1px solid transparent; }
 .desktopWorkoutSession { display: grid; grid-template-columns: 1fr 36px; border-bottom: 1px solid var(--line); }
 .desktopWorkout input,
 .desktopWorkout textarea,

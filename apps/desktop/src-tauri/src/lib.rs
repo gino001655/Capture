@@ -489,6 +489,8 @@ pub fn run() {
             special::get_workout_record,
             special::list_workout_records,
             special::save_workout_record,
+            special::get_workout_library,
+            special::save_workout_library,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

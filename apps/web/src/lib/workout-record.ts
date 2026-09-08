@@ -22,6 +22,7 @@ export type RunningSegment = {
 export type StrengthExercise = {
   id: string;
   kind: "strength";
+  libraryEntryId?: string;
   name: string;
   note: string;
   sets: WorkoutSet[];
@@ -138,7 +139,7 @@ function validExercise(value: unknown): value is WorkoutExercise {
     return false;
   }
   if (value.kind === "strength") {
-    return Array.isArray(value.sets) && value.sets.length <= LIMITS.sets && value.sets.every(validSet);
+    return (value.libraryEntryId === undefined || isValidUuid(value.libraryEntryId)) && Array.isArray(value.sets) && value.sets.length <= LIMITS.sets && value.sets.every(validSet);
   }
   if (value.kind !== "running") return false;
   return optionalNumber(value.distanceKm, 0, 10_000) &&

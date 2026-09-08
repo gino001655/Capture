@@ -15,6 +15,8 @@ import { emptyWorkoutPayload } from "../lib/workout-record";
 import { shiftJournalDate } from "./journal-session";
 import { ModuleRail, type CaptureModule } from "./module-rail";
 import { toTaipeiDate } from "../lib/special-record";
+import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../lib/workout-library";
+import { emptyWorkoutLibrary } from "../lib/workout-library";
 
 const CACHE_KEY = "capture.workout.v1";
 const AUTOSAVE_MS = 800;
@@ -76,7 +78,7 @@ function buildStrengthStats(records: WorkoutRecord[]) {
   const stats = new Map<string, StrengthStats>();
   for (const record of records) for (const session of record.payload.sessions) for (const exercise of session.exercises) {
     if (exercise.kind !== "strength") continue;
-    const key = exercise.name.toLocaleLowerCase();
+    const key = exercise.libraryEntryId ?? exercise.name.toLocaleLowerCase();
     const current = stats.get(key) ?? { sessions: 0, maximumWeight: null, estimatedOneRepMax: null, recentNote: "" };
     current.sessions += 1;
     if (!current.recentNote && exercise.note.trim()) current.recentNote = exercise.note.trim();
@@ -105,6 +107,8 @@ export function WorkoutApp({
     payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString(),
   });
   const [history, setHistory] = useState<WorkoutRecord[]>([]);
+  const [library, setLibrary] = useState<WorkoutLibraryPayload>(emptyWorkoutLibrary);
+  const [libraryRevision, setLibraryRevision] = useState<number | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessionIndex, setSessionIndex] = useState(0);
   const [newExerciseName, setNewExerciseName] = useState("");
@@ -197,6 +201,13 @@ export function WorkoutApp({
       .then((response) => response.json())
       .then(({ records }) => setHistory(records ?? []))
       .catch(() => undefined);
+    void fetch("/api/special-records/workout/library", { cache: "no-store" })
+      .then((response) => response.json())
+      .then(({ record }: { record: WorkoutLibraryRecord | null }) => {
+        setLibrary(record?.payload ?? emptyWorkoutLibrary());
+        setLibraryRevision(record?.revision ?? null);
+      })
+      .catch(() => setIssue("動作庫尚未同步"));
   }, [active, load]);
 
   useEffect(() => {
@@ -207,12 +218,12 @@ export function WorkoutApp({
   const editable = selectedDate === today || selectedDate === shiftJournalDate(today, -1);
   const session = local.payload.sessions[sessionIndex] ?? null;
   const recentExercises = useMemo(() => {
-    const names: string[] = [];
+    const names = library.entries.filter((entry) => !entry.archived).sort((left, right) => left.order - right.order).map((entry) => entry.name);
     for (const record of history) for (const item of record.payload.sessions) for (const exercise of item.exercises) {
       if (!names.includes(exercise.name)) names.push(exercise.name);
     }
     return names.slice(0, 6);
-  }, [history]);
+  }, [history, library]);
   const strengthStats = useMemo(() => buildStrengthStats(history), [history]);
 
   function updateSession(change: (session: WorkoutSession) => void) {
@@ -228,10 +239,13 @@ export function WorkoutApp({
     setSessionIndex(localRef.current.payload.sessions.length - 1);
   }
 
-  function previousStrength(name: string): StrengthExercise | undefined {
+  function previousStrength(name: string, libraryEntryId?: string): StrengthExercise | undefined {
     for (const record of history) for (const item of record.payload.sessions) {
       const found = item.exercises.find((exercise): exercise is StrengthExercise =>
-        exercise.kind === "strength" && exercise.name.toLocaleLowerCase() === name.toLocaleLowerCase(),
+        exercise.kind === "strength" && (
+          (libraryEntryId !== undefined && exercise.libraryEntryId === libraryEntryId) ||
+          (!exercise.libraryEntryId && exercise.name.toLocaleLowerCase() === name.toLocaleLowerCase())
+        ),
       );
       if (found) return found;
     }
@@ -241,13 +255,41 @@ export function WorkoutApp({
   function addStrength(name: string) {
     const trimmed = name.trim();
     if (!trimmed || !session) return;
-    const previous = previousStrength(trimmed);
+    let entry = library.entries.find((item) => item.name.toLocaleLowerCase() === trimmed.toLocaleLowerCase());
+    if (!entry) {
+      entry = { id: crypto.randomUUID(), name: trimmed, order: library.entries.length, archived: false };
+      void saveLibrary({ ...library, entries: [...library.entries, entry] });
+    }
+    const previous = previousStrength(trimmed, entry.id);
     const exercise: StrengthExercise = {
       id: crypto.randomUUID(), kind: "strength", name: trimmed, note: "",
+      libraryEntryId: entry.id,
       sets: previous?.sets.length ? previous.sets.map(blankSet) : [blankSet()],
     };
     updateSession((target) => target.exercises.push(exercise));
     setNewExerciseName("");
+  }
+
+  async function saveLibrary(next: WorkoutLibraryPayload) {
+    setLibrary(next);
+    try {
+      const response = await fetch("/api/special-records/workout/library", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ payload: next, expectedRevision: libraryRevision }) });
+      const result = await response.json();
+      if (!response.ok) {
+        if (result.record) { setLibrary(result.record.payload); setLibraryRevision(result.record.revision); }
+        setIssue(result?.error?.code === "LIBRARY_ENTRY_IN_USE" ? "有歷史的動作只能封存" : "動作庫尚未同步");
+        return;
+      }
+      setLibrary(result.record.payload);
+      setLibraryRevision(result.record.revision);
+      setIssue(null);
+    } catch { setIssue("動作庫尚未同步"); }
+  }
+
+  function libraryEntryUsed(entry: WorkoutLibraryEntry) {
+    return history.some((record) => record.payload.sessions.some((item) => item.exercises.some((exercise) =>
+      exercise.kind === "strength" && (exercise.libraryEntryId === entry.id || (!exercise.libraryEntryId && exercise.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase())),
+    )));
   }
 
   function addRun() {
@@ -294,6 +336,15 @@ export function WorkoutApp({
 
       {historyOpen ? (
         <section className="workoutHistory">
+          <div className="workoutLibrary">
+            {library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}>
+              <input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const name = event.target.value.trim(); if (name) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name } : item) }); }} />
+              <button disabled={index === 0} aria-label="上移" onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↑</button>
+              <button disabled={index === entries.length - 1} aria-label="下移" onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↓</button>
+              <button aria-label={entry.archived ? "取消封存" : "封存"} onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "◇" : "—"}</button>
+              {!libraryEntryUsed(entry) ? <button aria-label="刪除" onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>×</button> : <span />}
+            </div>)}
+          </div>
           {history.map((record) => (
             <button key={record.id} onClick={() => { setHistoryOpen(false); void load(record.journalDate); }}>
               <time>{record.journalDate.slice(5).replace("-", ".")}</time>
@@ -323,7 +374,7 @@ export function WorkoutApp({
 
               {session.exercises.map((exercise) => exercise.kind === "strength" ? (
                 <StrengthEditor key={exercise.id} exercise={exercise} editable={editable}
-                  stats={strengthStats.get(exercise.name.toLocaleLowerCase())}
+                  stats={strengthStats.get(exercise.libraryEntryId ?? exercise.name.toLocaleLowerCase())}
                   update={(change) => updateExercise(exercise.id, change)}
                   confirmSet={(setId) => updateSession((target) => {
                     const item = target.exercises.find((candidate) => candidate.id === exercise.id);
