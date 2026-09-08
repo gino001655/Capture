@@ -16,7 +16,8 @@ body {
 
 button,
 textarea,
-input {
+input,
+select {
   font: inherit;
 }
 
@@ -230,6 +231,15 @@ button:disabled {
 }
 
 .connectionSettings input {
+  width: 100%;
+  border: 1px solid #b9c9bc;
+  border-radius: 8px;
+  padding: 9px 10px;
+  background: #ffffff;
+  color: #17211b;
+}
+
+.connectionSettings select {
   width: 100%;
   border: 1px solid #b9c9bc;
   border-radius: 8px;

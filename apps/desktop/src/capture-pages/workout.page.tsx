@@ -22,6 +22,5 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
 
 export default {
   id: "workout",
-  order: 20,
   Component: WorkoutPage,
 } satisfies CapturePageDefinition;

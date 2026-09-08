@@ -22,6 +22,5 @@ function FoodPage({ requestModeChange }: CapturePageProps) {
 
 export default {
   id: "food",
-  order: 30,
   Component: FoodPage,
 } satisfies CapturePageDefinition;

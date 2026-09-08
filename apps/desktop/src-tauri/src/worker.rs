@@ -183,9 +183,13 @@ pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport
     };
 
     let content = job.content.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || processor::process_capture(&content))
-        .await
-        .map_err(|error| format!("The local processor stopped unexpectedly: {error}"))??;
+    let ai_provider = config.ai_provider.clone();
+    let ai_model = config.ai_model.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        processor::process_capture(&content, &ai_provider, ai_model.as_deref())
+    })
+    .await
+    .map_err(|error| format!("The local processor stopped unexpectedly: {error}"))??;
 
     client
         .patch(config.endpoint(&format!("api/jobs/{}", job.id)))

@@ -92,6 +92,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - For Journal batches, deterministically convert the six Capture areas to the approved Markdown bullets and dividers without AI rewriting.
 - Read the target Heptabase Journal, then append with its `contentMd5` as a conflict precondition. Cloud records are marked delivered and locked only after the append succeeds.
 - A failed Journal append is reported to Cloud and becomes retryable after 15 minutes or immediately through `Check now`.
+- The legacy note processor selects `codex-cli` or deterministic `none` through `AiProvider::write_markdown`; an optional Codex model is configuration rather than hard-coded policy.
 
 ## Desktop polling behavior
 
@@ -127,4 +128,4 @@ packages/     # Created only when stable code or contracts are genuinely shared
 docs/
 ```
 
-pnpm will manage JavaScript and TypeScript workspace dependencies. Cargo will manage Rust dependencies inside the Tauri application. Additional build orchestration will not be introduced until the repository demonstrates a need for it.
+`packages/recorder-kit` now owns the stable recorder identity, order, label, and symbol contract shared by Web and Desktop. It deliberately does not own recorder implementations or domain payloads. pnpm manages JavaScript and TypeScript workspace dependencies; Cargo manages Rust dependencies inside the Tauri application.

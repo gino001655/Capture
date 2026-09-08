@@ -2,26 +2,25 @@
 
 import { useState } from "react";
 
-import { EnglishApp } from "./english-app";
-import { JournalApp } from "./journal-app";
-import { ModuleRail, type CaptureModule } from "./module-rail";
+import { RECORDER_CATALOG, type RecorderId } from "@capture/recorder-kit";
+import { WEB_RECORDER_PAGES } from "./recorder-registry";
 
 export function CaptureApp({ accountEmail }: { accountEmail: string }) {
-  const [module, setModule] = useState<CaptureModule>("journal");
+  const [module, setModule] = useState<RecorderId>("journal");
 
   return (
     <div className="captureApp">
-      <JournalApp
-        accountEmail={accountEmail}
-        active={module === "journal"}
-        onSelectModule={setModule}
-      />
-      <EnglishApp active={module === "english"} onSelectModule={setModule} />
-      {module === "workout" || module === "food" ? (
-        <main className="specialPlaceholder">
-          <ModuleRail active={module} onSelect={setModule} />
-        </main>
-      ) : null}
+      {RECORDER_CATALOG.map(({ id }) => {
+        const Recorder = WEB_RECORDER_PAGES[id];
+        return (
+          <Recorder
+            key={id}
+            accountEmail={accountEmail}
+            active={module === id}
+            onSelectModule={setModule}
+          />
+        );
+      })}
     </div>
   );
 }

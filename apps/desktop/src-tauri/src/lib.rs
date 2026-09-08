@@ -1,3 +1,4 @@
+mod ai_provider;
 mod config;
 mod journal;
 mod special;
@@ -351,6 +352,16 @@ fn save_connection_settings(
 }
 
 #[tauri::command]
+fn save_processing_settings(
+    app: AppHandle,
+    ai_provider: String,
+    ai_model: Option<String>,
+) -> Result<ConnectionSettingsSummary, String> {
+    WorkerConfig::save_processing(&app, ai_provider, ai_model)?;
+    Ok(WorkerConfig::summary(&app))
+}
+
+#[tauri::command]
 fn hide_current_window(window: WebviewWindow) -> Result<(), String> {
     window.hide().map_err(|error| error.to_string())
 }
@@ -461,6 +472,7 @@ pub fn run() {
             retry_failed_journal_deliveries,
             get_connection_settings,
             save_connection_settings,
+            save_processing_settings,
             hide_current_window,
             show_worker_window,
             get_start_with_windows,

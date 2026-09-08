@@ -263,6 +263,5 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
 
 export default {
   id: "english",
-  order: 10,
   Component: EnglishPage,
 } satisfies CapturePageDefinition;

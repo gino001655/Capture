@@ -10,6 +10,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@capture/recorder-kit':
+        specifier: workspace:*
+        version: link:../../packages/recorder-kit
       '@tauri-apps/api':
         specifier: ^2
         version: 2.11.1
@@ -41,6 +44,9 @@ importers:
 
   apps/web:
     dependencies:
+      '@capture/recorder-kit':
+        specifier: workspace:*
+        version: link:../../packages/recorder-kit
       better-auth:
         specifier: ^1.6.27
         version: 1.6.27(mongodb@7.5.0)(next@16.3.0(@babel/core@7.29.7(supports-color@7.2.0))(@types/node@24.13.3)(react-dom@19.2.8(react@19.2.8))(react@19.2.8))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
@@ -75,6 +81,8 @@ importers:
       typescript:
         specifier: ^5.0.0
         version: 5.9.3
+
+  packages/recorder-kit: {}
 
 packages:
 

@@ -8,7 +8,7 @@
     "build": "pnpm --filter @capture/web build",
     "desktop:build": "pnpm --filter @capture/desktop tauri build",
     "lint": "pnpm --filter @capture/web lint",
-    "test": "pnpm --filter @capture/web test && pnpm --filter @capture/desktop test",
+    "test": "pnpm --filter @capture/recorder-kit test && pnpm --filter @capture/web test && pnpm --filter @capture/desktop test",
     "typecheck": "pnpm --filter @capture/web typecheck && pnpm --filter @capture/desktop typecheck"
   }
 }

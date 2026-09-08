@@ -9,6 +9,10 @@ const DEFAULT_API_BASE_URL: &str = "http://localhost:3000";
 pub(crate) struct WorkerConfig {
     pub(crate) api_base_url: String,
     pub(crate) device_token: String,
+    #[serde(default = "default_ai_provider")]
+    pub(crate) ai_provider: String,
+    #[serde(default)]
+    pub(crate) ai_model: Option<String>,
 }
 
 impl WorkerConfig {
@@ -17,7 +21,10 @@ impl WorkerConfig {
             let api_base_url = env::var("CAPTURE_API_BASE_URL")
                 .unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_owned());
 
-            return Self::new(api_base_url, device_token);
+            return Self::new(api_base_url, device_token)?.with_ai(
+                env::var("CAPTURE_AI_PROVIDER").unwrap_or_else(|_| default_ai_provider()),
+                env::var("CAPTURE_AI_MODEL").ok(),
+            );
         }
 
         let path = settings_path(app)?;
@@ -28,7 +35,8 @@ impl WorkerConfig {
         let stored: Self = serde_json::from_str(&contents)
             .map_err(|error| format!("Desktop connection settings are invalid: {error}"))?;
 
-        Self::new(stored.api_base_url, stored.device_token)
+        Self::new(stored.api_base_url, stored.device_token)?
+            .with_ai(stored.ai_provider, stored.ai_model)
     }
 
     pub(crate) fn save(
@@ -37,6 +45,21 @@ impl WorkerConfig {
         device_token: String,
     ) -> Result<Self, String> {
         let config = Self::new(api_base_url, device_token)?;
+        Self::persist(app, &config)?;
+        Ok(config)
+    }
+
+    pub(crate) fn save_processing(
+        app: &AppHandle,
+        ai_provider: String,
+        ai_model: Option<String>,
+    ) -> Result<Self, String> {
+        let config = Self::load(app)?.with_ai(ai_provider, ai_model)?;
+        Self::persist(app, &config)?;
+        Ok(config)
+    }
+
+    fn persist(app: &AppHandle, config: &Self) -> Result<(), String> {
         let path = settings_path(app)?;
 
         if let Some(parent) = path.parent() {
@@ -49,7 +72,7 @@ impl WorkerConfig {
         fs::write(&path, contents)
             .map_err(|error| format!("Could not save connection settings: {error}"))?;
 
-        Ok(config)
+        Ok(())
     }
 
     pub(crate) fn summary(app: &AppHandle) -> ConnectionSettingsSummary {
@@ -62,12 +85,17 @@ impl WorkerConfig {
                 } else {
                     "saved".to_owned()
                 },
+                ai_provider: config.ai_provider,
+                ai_model: config.ai_model,
             },
             Err(_) => ConnectionSettingsSummary {
                 api_base_url: env::var("CAPTURE_API_BASE_URL")
                     .unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_owned()),
                 token_configured: false,
                 source: "missing".to_owned(),
+                ai_provider: env::var("CAPTURE_AI_PROVIDER")
+                    .unwrap_or_else(|_| default_ai_provider()),
+                ai_model: env::var("CAPTURE_AI_MODEL").ok(),
             },
         }
     }
@@ -87,7 +115,21 @@ impl WorkerConfig {
         Ok(Self {
             api_base_url,
             device_token,
+            ai_provider: default_ai_provider(),
+            ai_model: None,
         })
+    }
+
+    fn with_ai(mut self, provider: String, model: Option<String>) -> Result<Self, String> {
+        self.ai_provider = match provider.trim().to_ascii_lowercase().as_str() {
+            "codex-cli" => "codex-cli".to_owned(),
+            "none" => "none".to_owned(),
+            _ => return Err("AI provider must be codex-cli or none.".to_owned()),
+        };
+        self.ai_model = model
+            .map(|model| model.trim().to_owned())
+            .filter(|model| !model.is_empty());
+        Ok(self)
     }
 
     pub(crate) fn endpoint(&self, path: &str) -> String {
@@ -101,6 +143,12 @@ pub(crate) struct ConnectionSettingsSummary {
     pub(crate) api_base_url: String,
     pub(crate) token_configured: bool,
     pub(crate) source: String,
+    pub(crate) ai_provider: String,
+    pub(crate) ai_model: Option<String>,
+}
+
+fn default_ai_provider() -> String {
+    "codex-cli".to_owned()
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -152,5 +200,31 @@ mod tests {
             decoded.device_token,
             "a-secure-device-token-that-is-long-enough"
         );
+    }
+
+    #[test]
+    fn legacy_settings_default_to_codex_without_a_model() {
+        let decoded: WorkerConfig = serde_json::from_str(
+            r#"{"apiBaseUrl":"https://capture.example.com","deviceToken":"a-secure-device-token-that-is-long-enough"}"#,
+        )
+        .expect("legacy configuration should deserialize");
+
+        assert_eq!(decoded.ai_provider, "codex-cli");
+        assert_eq!(decoded.ai_model, None);
+    }
+
+    #[test]
+    fn processing_settings_are_validated_and_normalized() {
+        let config = WorkerConfig::new(
+            "https://capture.example.com".to_owned(),
+            "a-secure-device-token-that-is-long-enough".to_owned(),
+        )
+        .expect("configuration")
+        .with_ai("CODEX-CLI".to_owned(), Some("  gpt-example  ".to_owned()))
+        .expect("processing settings");
+
+        assert_eq!(config.ai_provider, "codex-cli");
+        assert_eq!(config.ai_model.as_deref(), Some("gpt-example"));
+        assert!(config.with_ai("arbitrary-shell".to_owned(), None).is_err());
     }
 }

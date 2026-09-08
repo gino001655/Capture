@@ -1,13 +1,8 @@
 "use client";
 
-export type CaptureModule = "journal" | "english" | "workout" | "food";
+import { RECORDER_CATALOG, type RecorderId } from "@capture/recorder-kit";
 
-const MODULES: Array<{ id: CaptureModule; label: string; symbol: string }> = [
-  { id: "journal", label: "Journal", symbol: "○" },
-  { id: "english", label: "英文", symbol: "Aa" },
-  { id: "workout", label: "重訓", symbol: "↟" },
-  { id: "food", label: "飲食", symbol: "◫" },
-];
+export type CaptureModule = RecorderId;
 
 export function ModuleRail({
   active,
@@ -18,7 +13,7 @@ export function ModuleRail({
 }) {
   return (
     <nav className="moduleRail" aria-label="紀錄類型">
-      {MODULES.map((module) => (
+      {RECORDER_CATALOG.map((module) => (
         <button
           type="button"
           key={module.id}

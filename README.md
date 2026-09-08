@@ -8,7 +8,9 @@ This repository is also a software-engineering learning project. Development pro
 
 The authenticated Web/API is deployed to Vercel and verified with MongoDB Atlas and the Desktop worker. The Web is installable as an iPhone Home Screen app, and the Windows worker has a tray menu, background polling, quick-capture and status-window shortcuts, optional autostart, and a release installer.
 
-The minimum production pipeline is connected: the Desktop worker invokes the local Codex CLI, creates a note through the official Heptabase CLI, and reports the Heptabase card ID back to the Cloud API. The path has been verified against the Vercel deployment and MongoDB Atlas. Content format, retries, and failure recovery remain intentionally minimal.
+The legacy text-to-note pipeline is connected and production-verified. The newer Journal pipeline batches idle records by Taipei date after the 04:00 boundary, appends deterministic Markdown to the corresponding Heptabase Journal, locks successful records, and keeps failed work in a visible retry queue. That newer path is implemented and automatically verified but still needs one production smoke test.
+
+English is the first synchronized special recorder. Web and Desktop share one daily document and history contract. Cross-device manual verification and its Anki processor remain pending.
 
 ## Local development
 
@@ -19,7 +21,7 @@ Requirements:
 - Rust stable MSVC toolchain
 - Visual Studio 2022 Build Tools with Desktop development with C++
 - Microsoft Edge WebView2
-- OpenAI Codex CLI installed globally with npm and signed in
+- OpenAI Codex CLI installed globally and signed in when the `codex-cli` processor is selected (optional with `none`)
 - Heptabase Desktop with its CLI enabled; the worker starts the Desktop application when processing needs it
 
 Install the workspace dependencies:
@@ -48,8 +50,8 @@ Development uses `apps/desktop/src-tauri/.env.local`. The installed Desktop app 
 
 Desktop shortcuts:
 
-- `Ctrl + Alt + C`: open Quick Capture;
-- `Ctrl + Alt + W`: show or hide Worker Status.
+- `Ctrl + Numpad 5`: open Quick Capture;
+- `Ctrl + NumLock` (with `Ctrl + Pause` fallback): show or hide Worker Status.
 
 Closing either Desktop window hides it; use the tray menu's Quit action to stop the worker. Build the Windows NSIS installer with:
 
@@ -102,4 +104,5 @@ Web capture
 
 - [Architecture](docs/architecture.md)
 - [Roadmap](docs/roadmap.md)
+- [Extending recorders, AI, and destinations](docs/extending-capture.md)
 - [Collaboration rules](AGENTS.md)

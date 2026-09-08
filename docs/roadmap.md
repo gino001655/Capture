@@ -130,11 +130,12 @@ Remaining limitation: Heptabase does not expose an idempotency key. A crash in t
 
 ## 10. Open-source extension boundary
 
-Status: Next.
+Status: Foundation implemented; public-license selection and broader provider coverage remain.
 
-- Give Web and Desktop one declarative recorder registry.
-- Document the minimum files needed to add a recorder.
-- Put AI and destination selection behind explicit provider interfaces and configuration, without committing credentials.
+- Web and Desktop now share one typed recorder catalog; Desktop page files remain auto-discovered and Web completeness is build-checked.
+- The extension guide documents the minimum files needed to add a recorder.
+- The legacy AI stage now has a configurable `codex-cli` / deterministic `none` provider boundary and optional model selection, without committing credentials.
+- Destination and database adapters remain the next interface extraction; only Heptabase and MongoDB are currently implemented.
 - Supply examples and development setup suitable for a GitHub user modifying a personal fork.
 
 ## 11. English to Anki

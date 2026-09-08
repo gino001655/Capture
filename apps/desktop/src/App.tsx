@@ -27,6 +27,8 @@ type ConnectionSettings = {
   apiBaseUrl: string;
   tokenConfigured: boolean;
   source: "environment" | "saved" | "missing";
+  aiProvider: "codex-cli" | "none";
+  aiModel: string | null;
 };
 
 type TrashedJournalRecord = {
@@ -71,9 +73,14 @@ function WorkerView() {
     apiBaseUrl: "http://localhost:3000",
     tokenConfigured: false,
     source: "missing",
+    aiProvider: "codex-cli",
+    aiModel: null,
   });
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:3000");
   const [deviceToken, setDeviceToken] = useState("");
+  const [aiProvider, setAiProvider] = useState<ConnectionSettings["aiProvider"]>("codex-cli");
+  const [aiModel, setAiModel] = useState("");
+  const [savingProcessing, setSavingProcessing] = useState(false);
   const [savingConnection, setSavingConnection] = useState(false);
   const [settingError, setSettingError] = useState<string | null>(null);
   const [captureTheme, setCaptureTheme] = useState<CaptureTheme>(readCaptureTheme);
@@ -110,6 +117,8 @@ function WorkerView() {
     void invoke<ConnectionSettings>("get_connection_settings").then((settings) => {
       setConnection(settings);
       setApiBaseUrl(settings.apiBaseUrl);
+      setAiProvider(settings.aiProvider);
+      setAiModel(settings.aiModel ?? "");
     });
 
     const intervalId = window.setInterval(() => {
@@ -188,6 +197,27 @@ function WorkerView() {
       );
     } finally {
       setSavingConnection(false);
+    }
+  }
+
+  async function saveProcessing(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSettingError(null);
+    setSavingProcessing(true);
+    try {
+      const settings = await invoke<ConnectionSettings>("save_processing_settings", {
+        aiProvider,
+        aiModel: aiModel.trim() || null,
+      });
+      setConnection(settings);
+      setAiProvider(settings.aiProvider);
+      setAiModel(settings.aiModel ?? "");
+    } catch (error) {
+      setSettingError(
+        typeof error === "string" ? error : "Could not save processing settings.",
+      );
+    } finally {
+      setSavingProcessing(false);
     }
   }
 
@@ -320,6 +350,45 @@ function WorkerView() {
             </small>
             <button type="submit" disabled={savingConnection}>
               {savingConnection ? "Saving..." : "Save and test"}
+            </button>
+          </div>
+        </form>
+      </details>
+
+      <details className="connectionSettings processingSettings">
+        <summary>Processing</summary>
+        <form onSubmit={saveProcessing}>
+          <label>
+            AI provider
+            <select
+              value={aiProvider}
+              onChange={(event) => setAiProvider(event.target.value as ConnectionSettings["aiProvider"])}
+              disabled={connection.source === "environment"}
+            >
+              <option value="codex-cli">Codex CLI</option>
+              <option value="none">No AI</option>
+            </select>
+          </label>
+          <label>
+            Codex model (optional)
+            <input
+              value={aiModel}
+              onChange={(event) => setAiModel(event.target.value)}
+              placeholder="Use Codex CLI default"
+              disabled={aiProvider !== "codex-cli" || connection.source === "environment"}
+            />
+          </label>
+          <div className="connectionFooter">
+            <small>
+              {connection.source === "environment"
+                ? "Controlled by CAPTURE_AI_PROVIDER / CAPTURE_AI_MODEL."
+                : "Journal delivery remains deterministic until its AI stage is enabled."}
+            </small>
+            <button
+              type="submit"
+              disabled={savingProcessing || !connection.tokenConfigured || connection.source === "environment"}
+            >
+              {savingProcessing ? "Saving..." : "Save"}
             </button>
           </div>
         </form>
