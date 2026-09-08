@@ -52,3 +52,13 @@ export function createDateBoundDebounce<T>(options: DateBoundDebounceOptions) {
 export function clampRecorderDate(candidate: string, today: string): string {
   return candidate > today ? today : candidate;
 }
+
+export function rebaseConflictCandidate<
+  T extends { revision: number | null; pending: boolean },
+>(candidate: T, cloudRevision: number | null): T {
+  return {
+    ...structuredClone(candidate),
+    revision: cloudRevision,
+    pending: true,
+  };
+}

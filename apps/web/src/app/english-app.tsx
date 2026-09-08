@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { rebaseConflictCandidate } from "@capture/recorder-kit";
 
 import type { EnglishRecord } from "../lib/special-record";
 import { toTaipeiDate } from "../lib/special-record";
@@ -14,6 +15,7 @@ type LocalEnglishDocument = {
   revision: number | null;
   pending: boolean;
   clientUpdatedAt: string;
+  conflict?: { cloud: EnglishRecord | null };
 };
 
 type EnglishCache = Record<string, LocalEnglishDocument>;
@@ -78,7 +80,7 @@ export function EnglishApp({
   }, []);
 
   const sync = useCallback(async (date: string, candidate = documentRef.current) => {
-    if (!candidate.pending || syncingDatesRef.current.has(date)) return;
+    if (!candidate.pending || candidate.conflict || syncingDatesRef.current.has(date)) return;
     syncingDatesRef.current.add(date);
     try {
       let attempt = candidate;
@@ -93,15 +95,23 @@ export function EnglishApp({
             clientUpdatedAt: attempt.clientUpdatedAt,
           }),
         });
-        if (!response.ok) throw new Error("sync failed");
-        const payload = await response.json() as { record: EnglishRecord | null };
+        const payload = await response.json() as { error?: { code?: string }; record: EnglishRecord | null };
+        if (!response.ok) {
+          if (payload.error?.code === "REVISION_CONFLICT") {
+            const current = readCache()[date] ?? attempt;
+            publish(date, { ...current, conflict: { cloud: payload.record } });
+            setIssue("選擇版本");
+            return;
+          }
+          throw new Error("sync failed");
+        }
         const current = readCache()[date] ?? attempt;
         const revision = payload.record?.revision ?? null;
         if (
           current.text === attempt.text &&
           current.clientUpdatedAt === attempt.clientUpdatedAt
         ) {
-          publish(date, { ...current, revision, pending: false });
+          publish(date, { ...current, revision, pending: false, conflict: undefined });
           break;
         }
         attempt = { ...current, revision, pending: true };
@@ -192,6 +202,22 @@ export function EnglishApp({
     setHistoryOpen(true);
   }
 
+  function useCloudVersion() {
+    const cloud = documentRef.current.conflict?.cloud;
+    publish(selectedDate, recordToLocal(cloud ?? null));
+    setIssue(null);
+  }
+
+  function keepLocalVersion() {
+    const current = documentRef.current;
+    if (!current.conflict) return;
+    const { conflict, ...withoutConflict } = current;
+    const next = rebaseConflictCandidate(withoutConflict, conflict.cloud?.revision ?? null);
+    publish(selectedDate, next);
+    setIssue(null);
+    void sync(selectedDate, next);
+  }
+
   return (
     <main className="englishShell" hidden={!active}>
       <header className="englishToolbar">
@@ -213,6 +239,7 @@ export function EnglishApp({
         {issue ? <span className="englishIssue" aria-label={issue}>·</span> : null}
         <button type="button" aria-label="英文紀錄列表" onClick={() => void toggleHistory()}>☷</button>
       </header>
+      {document.conflict ? <div className="specialConflict" role="alert"><span>版本</span><button type="button" onClick={useCloudVersion}>雲端</button><button type="button" onClick={keepLocalVersion}>本機</button></div> : null}
       {historyOpen ? (
         <section className="englishHistory" aria-label="英文紀錄列表">
           {history.map((entry) => (

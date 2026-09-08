@@ -927,6 +927,27 @@ button:disabled {
 .foodLibrary > div.archived { opacity: 0.4; }
 .foodLibrary input, .foodLibrary button { min-width: 0; border: 0; padding: 7px 3px; background: transparent; color: inherit; }
 
+.englishShell,
+.workoutShell,
+.foodShell { position: relative; }
+.specialConflict {
+  position: absolute;
+  z-index: 6;
+  top: 39px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 7px;
+  border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+  background: color-mix(in srgb, var(--journal-paper, #fff) 94%, transparent);
+  color: inherit;
+  font-size: 0.64rem;
+  backdrop-filter: blur(10px);
+}
+.specialConflict span { opacity: 0.52; }
+.specialConflict button { border: 0; border-bottom: 1px solid currentColor; padding: 1px 0; background: transparent; color: inherit; font: inherit; }
+
 main:not(.journalShell):not(.englishShell):not(.specialPlaceholder) {
   display: grid;
   width: min(100%, 64rem);

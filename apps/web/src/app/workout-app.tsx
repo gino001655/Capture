@@ -17,7 +17,7 @@ import { ModuleRail, type CaptureModule } from "./module-rail";
 import { toTaipeiDate } from "../lib/special-record";
 import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../lib/workout-library";
 import { emptyWorkoutLibrary } from "../lib/workout-library";
-import { clampRecorderDate, createDateBoundDebounce } from "@capture/recorder-kit";
+import { clampRecorderDate, createDateBoundDebounce, rebaseConflictCandidate } from "@capture/recorder-kit";
 
 const CACHE_KEY = "capture.workout.v1";
 const AUTOSAVE_MS = 800;
@@ -27,6 +27,7 @@ type LocalWorkout = {
   revision: number | null;
   pending: boolean;
   clientUpdatedAt: string;
+  conflict?: { cloud: WorkoutRecord | null };
 };
 type Cache = Record<string, LocalWorkout>;
 type StrengthStats = { sessions: number; maximumWeight: number | null; estimatedOneRepMax: number | null; recentNote: string };
@@ -135,7 +136,7 @@ export function WorkoutApp({
   }, []);
 
   const sync = useCallback(async (date: string, candidate = localRef.current) => {
-    if (!candidate.pending) return;
+    if (!candidate.pending || candidate.conflict) return;
     try {
       const response = await fetch("/api/special-records/workout", {
         method: "PUT",
@@ -149,13 +150,19 @@ export function WorkoutApp({
       });
       const result = await response.json();
       if (!response.ok) {
-        setIssue(result?.error?.code === "REVISION_CONFLICT" ? "另一台裝置已有較新的訓練紀錄" : "尚未同步");
+        if (result?.error?.code === "REVISION_CONFLICT") {
+          const current = readCache()[date] ?? candidate;
+          publish(date, { ...current, conflict: { cloud: result.record ?? null } });
+          setIssue("選擇版本");
+          return;
+        }
+        setIssue("尚未同步");
         return;
       }
       const current = readCache()[date] ?? candidate;
       const revision = result.record?.revision ?? null;
       if (current.clientUpdatedAt === candidate.clientUpdatedAt) {
-        publish(date, { ...current, revision, pending: false });
+        publish(date, { ...current, revision, pending: false, conflict: undefined });
       }
       setIssue(null);
     } catch { setIssue("尚未同步"); }
@@ -323,6 +330,25 @@ export function WorkoutApp({
     updateSession((target) => target.exercises.push(exercise));
   }
 
+  function useCloudVersion() {
+    const cloud = localRef.current.conflict?.cloud;
+    const next: LocalWorkout = cloud
+      ? { payload: cloud.payload, revision: cloud.revision, pending: false, clientUpdatedAt: cloud.updatedAt }
+      : { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() };
+    publish(selectedDate, next);
+    setIssue(null);
+  }
+
+  function keepLocalVersion() {
+    const current = localRef.current;
+    if (!current.conflict) return;
+    const { conflict, ...withoutConflict } = current;
+    const next = rebaseConflictCandidate(withoutConflict, conflict.cloud?.revision ?? null);
+    publish(selectedDate, next);
+    setIssue(null);
+    void sync(selectedDate, next);
+  }
+
   function updateExercise(id: string, change: (exercise: WorkoutExercise) => void) {
     updateSession((target) => {
       const exercise = target.exercises.find((item) => item.id === id);
@@ -354,6 +380,7 @@ export function WorkoutApp({
         <label>{selectedDate.slice(5).replace("-", ".")}<input type="date" max={today} value={selectedDate} onChange={(event) => void load(event.target.value)} /></label>
         <span className={local.pending ? "workoutSync pending" : "workoutSync"}>{issue ? "!" : local.pending ? "·" : ""}</span>
       </header>
+      {local.conflict ? <div className="specialConflict" role="alert"><span>版本</span><button type="button" onClick={useCloudVersion}>雲端</button><button type="button" onClick={keepLocalVersion}>本機</button></div> : null}
 
       {historyOpen ? (
         <section className="workoutHistory">

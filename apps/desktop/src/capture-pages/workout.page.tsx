@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { clampRecorderDate, createDateBoundDebounce } from "@capture/recorder-kit";
+import { clampRecorderDate, createDateBoundDebounce, rebaseConflictCandidate } from "@capture/recorder-kit";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import type {
@@ -18,8 +18,9 @@ import { shiftJournalDate } from "../journal";
 import type { CapturePageDefinition, CapturePageProps } from "./types";
 
 const CACHE_KEY = "capture.desktop.workout.v1";
-type LocalWorkout = { payload: WorkoutPayload; revision: number | null; pending: boolean; clientUpdatedAt: string };
+type LocalWorkout = { payload: WorkoutPayload; revision: number | null; pending: boolean; clientUpdatedAt: string; conflict?: { cloud: WorkoutRecord | null } };
 type Cache = Record<string, LocalWorkout>;
+type SaveResult<T> = { record: T | null; conflict: boolean };
 
 function taipeiDate() {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date());
@@ -63,13 +64,14 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   }, []);
 
   const sync = useCallback(async (targetDate: string, candidate = localRef.current) => {
-    if (!candidate.pending) return;
+    if (!candidate.pending || candidate.conflict) return;
     try {
-      const record = await invoke<WorkoutRecord | null>("save_workout_record", { input: {
+      const result = await invoke<SaveResult<WorkoutRecord>>("save_workout_record", { input: {
         journalDate: targetDate, payload: candidate.payload, expectedRevision: candidate.revision, clientUpdatedAt: candidate.clientUpdatedAt,
       } });
+      if (result.conflict) { const current = readCache()[targetDate] ?? candidate; publish(targetDate, { ...current, conflict: { cloud: result.record } }); setIssue(true); return; }
       const current = readCache()[targetDate] ?? candidate;
-      if (current.clientUpdatedAt === candidate.clientUpdatedAt) publish(targetDate, { ...current, revision: record?.revision ?? null, pending: false });
+      if (current.clientUpdatedAt === candidate.clientUpdatedAt) publish(targetDate, { ...current, revision: result.record?.revision ?? null, pending: false, conflict: undefined });
       setIssue(false);
     } catch { setIssue(true); }
   }, [publish]);
@@ -112,6 +114,8 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
       event.preventDefault(); requestModeChange(event.key === "ArrowLeft" ? -1 : 1);
     }
   }
+  function useCloudVersion() { const cloud = localRef.current.conflict?.cloud; const next: LocalWorkout = cloud ? { payload: cloud.payload, revision: cloud.revision, pending: false, clientUpdatedAt: cloud.updatedAt } : { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() }; publish(date, next); setIssue(false); }
+  function keepLocalVersion() { const current = localRef.current; if (!current.conflict) return; const { conflict, ...withoutConflict } = current; const next = rebaseConflictCandidate(withoutConflict, conflict.cloud?.revision ?? null); publish(date, next); setIssue(false); void sync(date, next); }
   function updateSession(change: (value: WorkoutSession) => void) {
     if (!activeSession) return;
     mutate((payload) => { const target = payload.sessions.find((item) => item.id === activeSession.id); if (target) change(target); });
@@ -184,6 +188,7 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
 
   return <main className="captureExtensionPage desktopWorkout viewEnter" aria-label="重訓紀錄" tabIndex={0} onKeyDown={keyNavigation}>
     <header><button onClick={() => setLibraryOpen((open) => !open)}>≡</button><label>{date.slice(5).replace("-", ".")}<input type="date" max={today} value={date} onChange={(event) => void load(event.target.value)} /></label><span>{issue ? "!" : local.pending ? "·" : ""}</span></header>
+    {local.conflict ? <div className="specialConflict" role="alert"><span>版本</span><button type="button" onClick={useCloudVersion}>雲端</button><button type="button" onClick={keepLocalVersion}>本機</button></div> : null}
     <section>
       {libraryOpen ? <div className="desktopLibrary">{library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}><input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const nextName = event.target.value.trim(); if (nextName) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name: nextName } : item) }); }} /><button disabled={index === 0} onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↑</button><button disabled={index === entries.length - 1} onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↓</button><button onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "◇" : "—"}</button>{!libraryEntryUsed(entry) ? <button onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>×</button> : <span />}</div>)}</div> : !activeSession ? <div className="desktopWorkoutEmpty"><button disabled={!editable} onClick={() => mutate((payload) => payload.sessions.push(newSession()))}>＋</button>{recent.map((item) => <small key={item}>{item}</small>)}</div> : <>
         <div className="desktopWorkoutSession"><input placeholder="訓練" value={activeSession.name} disabled={!editable} onChange={(event) => updateSession((target) => { target.name = event.target.value; })} /><button disabled={!editable} onClick={() => updateSession((target) => { target.completedAt = target.completedAt ? null : new Date().toISOString(); })}>{activeSession.completedAt ? "↶" : "✓"}</button></div>

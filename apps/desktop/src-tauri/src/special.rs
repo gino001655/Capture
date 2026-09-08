@@ -1,4 +1,5 @@
 use reqwest::{Client, Method};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tauri::AppHandle;
@@ -157,6 +158,52 @@ struct FoodLibraryResponse {
     record: Option<FoodLibraryRecord>,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SaveCommandResult<T> {
+    record: Option<T>,
+    conflict: bool,
+}
+
+#[derive(Deserialize)]
+struct ApiRecordResponse<T> {
+    record: Option<T>,
+}
+
+fn decode_save_body<T: DeserializeOwned>(
+    status: u16,
+    body: &str,
+    api_name: &str,
+) -> Result<SaveCommandResult<T>, String> {
+    let parsed = serde_json::from_str::<Value>(body).ok();
+    let is_revision_conflict = status == 409
+        && parsed
+            .as_ref()
+            .and_then(|value| value.get("error"))
+            .and_then(|error| error.get("code"))
+            .and_then(Value::as_str)
+            == Some("REVISION_CONFLICT");
+
+    if !(200..300).contains(&status) && !is_revision_conflict {
+        return Err(error_message(status, body));
+    }
+    serde_json::from_str::<ApiRecordResponse<T>>(body)
+        .map(|payload| SaveCommandResult {
+            record: payload.record,
+            conflict: is_revision_conflict,
+        })
+        .map_err(|error| format!("{api_name} API response was invalid: {error}"))
+}
+
+async fn decode_save_response<T: DeserializeOwned>(
+    response: reqwest::Response,
+    api_name: &str,
+) -> Result<SaveCommandResult<T>, String> {
+    let status = response.status().as_u16();
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    decode_save_body(status, &body, api_name)
+}
+
 fn error_message(status: u16, body: &str) -> String {
     serde_json::from_str::<Value>(body)
         .ok()
@@ -230,15 +277,16 @@ pub(crate) async fn list_english_records(app: AppHandle) -> Result<Vec<EnglishRe
 pub(crate) async fn save_english_record(
     app: AppHandle,
     input: EnglishSaveInput,
-) -> Result<Option<EnglishRecord>, String> {
+) -> Result<SaveCommandResult<EnglishRecord>, String> {
     let config = WorkerConfig::load(&app)?;
-    request(
-        &config,
-        Method::PUT,
-        config.endpoint("api/special-records/english"),
-        Some(&input),
-    )
-    .await
+    let response = Client::new()
+        .put(config.endpoint("api/special-records/english"))
+        .bearer_auth(&config.device_token)
+        .json(&input)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach English API: {error}"))?;
+    decode_save_response(response, "English").await
 }
 
 #[tauri::command]
@@ -279,7 +327,7 @@ pub(crate) async fn list_workout_records(app: AppHandle) -> Result<Vec<WorkoutRe
 pub(crate) async fn save_workout_record(
     app: AppHandle,
     input: WorkoutSaveInput,
-) -> Result<Option<WorkoutRecord>, String> {
+) -> Result<SaveCommandResult<WorkoutRecord>, String> {
     let config = WorkerConfig::load(&app)?;
     let response = Client::new()
         .put(config.endpoint("api/special-records/workout"))
@@ -288,7 +336,7 @@ pub(crate) async fn save_workout_record(
         .send()
         .await
         .map_err(|error| format!("Could not reach Workout API: {error}"))?;
-    decode_workout_response(response).await
+    decode_save_response(response, "Workout").await
 }
 
 async fn decode_workout_response(
@@ -396,7 +444,7 @@ pub(crate) async fn list_food_records(app: AppHandle) -> Result<Vec<FoodRecord>,
 pub(crate) async fn save_food_record(
     app: AppHandle,
     input: FoodSaveInput,
-) -> Result<Option<FoodRecord>, String> {
+) -> Result<SaveCommandResult<FoodRecord>, String> {
     let config = WorkerConfig::load(&app)?;
     let response = Client::new()
         .put(config.endpoint("api/special-records/food"))
@@ -405,7 +453,7 @@ pub(crate) async fn save_food_record(
         .send()
         .await
         .map_err(|error| format!("Could not reach Food API: {error}"))?;
-    decode_food_response(response).await
+    decode_save_response(response, "Food").await
 }
 
 async fn decode_food_library_response(
@@ -451,7 +499,8 @@ pub(crate) async fn save_food_library(
 
 #[cfg(test)]
 mod tests {
-    use super::error_message;
+    use super::{decode_save_body, error_message};
+    use serde_json::Value;
 
     #[test]
     fn english_api_error_prefers_server_message() {
@@ -459,5 +508,18 @@ mod tests {
             error_message(409, r#"{"error":{"message":"locked"}}"#),
             "locked"
         );
+    }
+
+    #[test]
+    fn revision_conflict_keeps_the_cloud_record_for_the_desktop_ui() {
+        let result = decode_save_body::<Value>(
+            409,
+            r#"{"error":{"code":"REVISION_CONFLICT","message":"changed"},"record":{"revision":4}}"#,
+            "English",
+        )
+        .expect("revision conflict is a successful structured command result");
+
+        assert!(result.conflict);
+        assert_eq!(result.record.unwrap()["revision"], 4);
     }
 }

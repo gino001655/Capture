@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { rebaseConflictCandidate } from "@capture/recorder-kit";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type { CapturePageDefinition, CapturePageProps } from "./types";
@@ -18,7 +19,9 @@ type LocalDocument = {
   revision: number | null;
   pending: boolean;
   clientUpdatedAt: string;
+  conflict?: { cloud: EnglishRecord | null };
 };
+type SaveResult<T> = { record: T | null; conflict: boolean };
 type Cache = Record<string, LocalDocument>;
 type HistoryEntry = { journalDate: string; text: string };
 
@@ -76,12 +79,12 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
   }, []);
 
   const sync = useCallback(async (date: string, candidate = documentRef.current) => {
-    if (!candidate.pending || syncingDatesRef.current.has(date)) return;
+    if (!candidate.pending || candidate.conflict || syncingDatesRef.current.has(date)) return;
     syncingDatesRef.current.add(date);
     try {
       let attempt = candidate;
       while (attempt.pending) {
-        const record = await invoke<EnglishRecord | null>("save_english_record", {
+        const result = await invoke<SaveResult<EnglishRecord>>("save_english_record", {
           input: {
             journalDate: date,
             text: attempt.text,
@@ -89,13 +92,19 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
             clientUpdatedAt: attempt.clientUpdatedAt,
           },
         });
+        if (result.conflict) {
+          const current = readCache()[date] ?? attempt;
+          publish(date, { ...current, conflict: { cloud: result.record } });
+          setIssue(true);
+          return;
+        }
         const current = readCache()[date] ?? attempt;
-        const revision = record?.revision ?? null;
+        const revision = result.record?.revision ?? null;
         if (
           current.text === attempt.text &&
           current.clientUpdatedAt === attempt.clientUpdatedAt
         ) {
-          publish(date, { ...current, revision, pending: false });
+          publish(date, { ...current, revision, pending: false, conflict: undefined });
           break;
         }
         attempt = { ...current, revision, pending: true };
@@ -199,6 +208,27 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
     setHistoryOpen(true);
   }
 
+  function useCloudVersion() {
+    const cloud = documentRef.current.conflict?.cloud;
+    publish(selectedDate, {
+      text: cloud?.payload.text ?? "",
+      revision: cloud?.revision ?? null,
+      pending: false,
+      clientUpdatedAt: cloud?.updatedAt ?? new Date().toISOString(),
+    });
+    setIssue(false);
+  }
+
+  function keepLocalVersion() {
+    const current = documentRef.current;
+    if (!current.conflict) return;
+    const { conflict, ...withoutConflict } = current;
+    const next = rebaseConflictCandidate(withoutConflict, conflict.cloud?.revision ?? null);
+    publish(selectedDate, next);
+    setIssue(false);
+    void sync(selectedDate, next);
+  }
+
   return (
     <main className="captureExtensionPage englishPage viewEnter" aria-label="英文紀錄" onKeyDown={handleKeyDown}>
       <header className="englishToolbar">
@@ -220,6 +250,7 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
         {issue ? <span className="englishSyncIssue" aria-label="尚未同步">·</span> : null}
         <button type="button" aria-label="英文紀錄列表" onClick={() => void toggleHistory()}>☷</button>
       </header>
+      {document.conflict ? <div className="specialConflict" role="alert"><span>版本</span><button type="button" onClick={useCloudVersion}>雲端</button><button type="button" onClick={keepLocalVersion}>本機</button></div> : null}
       {historyOpen ? (
         <section className="englishHistory" aria-label="英文紀錄列表">
           {history.map((entry) => (

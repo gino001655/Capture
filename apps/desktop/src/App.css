@@ -919,3 +919,24 @@ button:disabled {
 .desktopFoodLibrary > div { display: grid; grid-template-columns: 1fr repeat(4, 24px); align-items: center; }
 .desktopFoodLibrary > div.archived { opacity: 0.4; }
 .desktopFoodLibrary input { padding: 6px 1px; }
+
+.englishPage,
+.desktopWorkout,
+.desktopFood { position: relative; }
+.specialConflict {
+  position: absolute;
+  z-index: 8;
+  top: 29px;
+  right: 7px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--paper) 94%, transparent);
+  color: var(--ink);
+  font-size: 0.58rem;
+  backdrop-filter: blur(8px);
+}
+.specialConflict span { opacity: 0.52; }
+.specialConflict button { border: 0; border-bottom: 1px solid currentColor; padding: 1px 0; background: transparent; color: inherit; font: inherit; }
