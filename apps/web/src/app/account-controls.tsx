@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 import { authClient } from "../lib/auth-client";
+import { clearOfflineShell } from "./service-worker-registration";
 
 export function AccountControls({ email }: { email: string }) {
   const [pending, setPending] = useState(false);
@@ -11,6 +12,7 @@ export function AccountControls({ email }: { email: string }) {
 
   async function signOut() {
     setPending(true);
+    await clearOfflineShell();
     await authClient.signOut();
     router.push("/sign-in");
     router.refresh();
