@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { clampRecorderDate, createDateBoundDebounce } from "@capture/recorder-kit";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import type {
@@ -48,9 +49,10 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   const [name, setName] = useState("");
   const [issue, setIssue] = useState(false);
   const [now, setNow] = useState(Date.now());
-  const timerRef = useRef<number | null>(null);
   const localRef = useRef(local);
   const dateRef = useRef(date);
+  const syncDebounceRef = useRef<ReturnType<typeof createDateBoundDebounce<LocalWorkout>> | null>(null);
+  syncDebounceRef.current ??= createDateBoundDebounce<LocalWorkout>({ delayMs: 800, schedule: (callback, delayMs) => window.setTimeout(callback, delayMs), cancel: (handle) => window.clearTimeout(handle as number) });
   const editable = date === today || date === shiftJournalDate(today, -1);
   const activeSession = local.payload.sessions.find((item) => item.completedAt === null) ?? local.payload.sessions[local.payload.sessions.length - 1] ?? null;
 
@@ -75,12 +77,13 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   const mutate = useCallback((change: (payload: WorkoutPayload) => void) => {
     const payload = structuredClone(localRef.current.payload); change(payload);
     const next = { ...localRef.current, payload, pending: true, clientUpdatedAt: new Date().toISOString() };
-    publish(dateRef.current, next);
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => void sync(dateRef.current), 800);
+    const targetDate = dateRef.current;
+    publish(targetDate, next);
+    syncDebounceRef.current?.queue(targetDate, next, sync);
   }, [publish, sync]);
 
   const load = useCallback(async (targetDate: string) => {
+    targetDate = clampRecorderDate(targetDate, today);
     dateRef.current = targetDate; setDate(targetDate);
     const cached = readCache()[targetDate];
     if (cached?.pending) { publish(targetDate, cached); void sync(targetDate, cached); return; }
@@ -91,9 +94,10 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
         : { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() });
       setIssue(false);
     } catch { setIssue(true); }
-  }, [publish, sync]);
+  }, [publish, sync, today]);
 
   useEffect(() => { void load(today); void invoke<WorkoutRecord[]>("list_workout_records").then(setHistory).catch(() => setIssue(true)); void invoke<WorkoutLibraryRecord | null>("get_workout_library").then((record) => { setLibrary(record?.payload ?? emptyWorkoutLibrary()); setLibraryRevision(record?.revision ?? null); }).catch(() => setIssue(true)); }, [load, today]);
+  useEffect(() => { const retryPending = () => { for (const [targetDate, candidate] of Object.entries(readCache())) if (candidate.pending) void sync(targetDate, candidate); }; window.addEventListener("online", retryPending); return () => { window.removeEventListener("online", retryPending); syncDebounceRef.current?.cancel(); }; }, [sync]);
   useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1_000); return () => window.clearInterval(id); }, []);
 
   const recent = useMemo(() => {

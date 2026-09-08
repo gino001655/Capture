@@ -17,6 +17,7 @@ import { ModuleRail, type CaptureModule } from "./module-rail";
 import { toTaipeiDate } from "../lib/special-record";
 import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../lib/workout-library";
 import { emptyWorkoutLibrary } from "../lib/workout-library";
+import { clampRecorderDate, createDateBoundDebounce } from "@capture/recorder-kit";
 
 const CACHE_KEY = "capture.workout.v1";
 const AUTOSAVE_MS = 800;
@@ -114,10 +115,15 @@ export function WorkoutApp({
   const [newExerciseName, setNewExerciseName] = useState("");
   const [issue, setIssue] = useState<string | null>(null);
   const [clock, setClock] = useState(0);
-  const timerRef = useRef<number | null>(null);
   const touchStartRef = useRef<number | null>(null);
   const localRef = useRef(local);
   const dateRef = useRef(selectedDate);
+  const syncDebounceRef = useRef<ReturnType<typeof createDateBoundDebounce<LocalWorkout>> | null>(null);
+  syncDebounceRef.current ??= createDateBoundDebounce<LocalWorkout>({
+    delayMs: AUTOSAVE_MS,
+    schedule: (callback, delayMs) => window.setTimeout(callback, delayMs),
+    cancel: (handle) => window.clearTimeout(handle as number),
+  });
 
   const publish = useCallback((date: string, next: LocalWorkout) => {
     localRef.current = next;
@@ -155,11 +161,6 @@ export function WorkoutApp({
     } catch { setIssue("尚未同步"); }
   }, [publish]);
 
-  const scheduleSync = useCallback((date: string) => {
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-    timerRef.current = window.setTimeout(() => void sync(date), AUTOSAVE_MS);
-  }, [sync]);
-
   const mutate = useCallback((change: (payload: WorkoutPayload) => WorkoutPayload) => {
     const next: LocalWorkout = {
       ...localRef.current,
@@ -167,18 +168,20 @@ export function WorkoutApp({
       pending: true,
       clientUpdatedAt: new Date().toISOString(),
     };
-    publish(dateRef.current, next);
-    scheduleSync(dateRef.current);
-  }, [publish, scheduleSync]);
+    const targetDate = dateRef.current;
+    publish(targetDate, next);
+    syncDebounceRef.current?.queue(targetDate, next, sync);
+  }, [publish, sync]);
 
   const load = useCallback(async (date: string) => {
+    date = clampRecorderDate(date, today);
     dateRef.current = date;
     setSelectedDate(date);
     setIssue(null);
     const cached = readCache()[date];
-    if (cached?.pending) {
+    if (cached) {
       publish(date, cached);
-      void sync(date, cached);
+      if (cached.pending) void sync(date, cached);
     }
     try {
       const response = await fetch(`/api/special-records/workout?date=${date}`, { cache: "no-store" });
@@ -192,7 +195,7 @@ export function WorkoutApp({
         setSessionIndex(openIndex >= 0 ? openIndex : Math.max(0, next.payload.sessions.length - 1));
       }
     } catch { if (!cached) setIssue("無法載入"); }
-  }, [publish, sync]);
+  }, [publish, sync, today]);
 
   useEffect(() => {
     if (!active) return;
@@ -209,6 +212,24 @@ export function WorkoutApp({
       })
       .catch(() => setIssue("動作庫尚未同步"));
   }, [active, load]);
+
+  useEffect(() => {
+    const retryPending = () => {
+      for (const [date, candidate] of Object.entries(readCache())) {
+        if (candidate.pending) void sync(date, candidate);
+      }
+    };
+    const retryVisible = () => {
+      if (document.visibilityState === "visible") retryPending();
+    };
+    window.addEventListener("online", retryPending);
+    document.addEventListener("visibilitychange", retryVisible);
+    return () => {
+      window.removeEventListener("online", retryPending);
+      document.removeEventListener("visibilitychange", retryVisible);
+      syncDebounceRef.current?.cancel();
+    };
+  }, [sync]);
 
   useEffect(() => {
     const id = window.setInterval(() => setClock(Date.now()), 1_000);

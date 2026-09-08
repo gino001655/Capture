@@ -16,3 +16,39 @@ export function recorderDefinition(id: RecorderId): RecorderDefinition {
   }
   return definition;
 }
+
+type TimerHandle = unknown;
+
+type DateBoundDebounceOptions = {
+  delayMs: number;
+  schedule(callback: () => void, delayMs: number): TimerHandle;
+  cancel(handle: TimerHandle): void;
+};
+
+export function createDateBoundDebounce<T>(options: DateBoundDebounceOptions) {
+  let handle: TimerHandle | null = null;
+
+  return {
+    queue(
+      date: string,
+      candidate: T,
+      save: (date: string, candidate: T) => Promise<void> | void,
+    ) {
+      if (handle !== null) options.cancel(handle);
+      const snapshot = structuredClone(candidate);
+      handle = options.schedule(() => {
+        handle = null;
+        void save(date, snapshot);
+      }, options.delayMs);
+    },
+    cancel() {
+      if (handle === null) return;
+      options.cancel(handle);
+      handle = null;
+    },
+  };
+}
+
+export function clampRecorderDate(candidate: string, today: string): string {
+  return candidate > today ? today : candidate;
+}
