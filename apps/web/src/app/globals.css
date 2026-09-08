@@ -840,6 +840,8 @@ button:disabled {
 .strengthExercise,
 .runningExercise { padding: 12px 12px 14px; border-bottom: 1px solid var(--workout-line); }
 .exerciseName { width: 100%; padding: 3px 2px 10px; font-size: 1rem; font-weight: 700; }
+.strengthStats { display: flex; flex-wrap: wrap; gap: 5px 10px; margin: -5px 2px 8px; color: color-mix(in srgb, currentColor 58%, transparent); font-size: 0.65rem; }
+.strengthStats small { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .setLabels,
 .workoutSet { display: grid; grid-template-columns: 24px repeat(4, minmax(0, 1fr)) 34px; gap: 5px; align-items: center; }
 .setLabels { opacity: 0.42; font-size: 0.62rem; text-align: center; }

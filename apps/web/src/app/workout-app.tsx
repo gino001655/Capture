@@ -26,6 +26,7 @@ type LocalWorkout = {
   clientUpdatedAt: string;
 };
 type Cache = Record<string, LocalWorkout>;
+type StrengthStats = { sessions: number; maximumWeight: number | null; estimatedOneRepMax: number | null; recentNote: string };
 
 function readCache(): Cache {
   try {
@@ -69,6 +70,26 @@ function pace(distanceKm: number | null, durationSeconds: number | null) {
   if (!distanceKm || !durationSeconds) return "—";
   const seconds = Math.round(durationSeconds / distanceKm);
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}/km`;
+}
+
+function buildStrengthStats(records: WorkoutRecord[]) {
+  const stats = new Map<string, StrengthStats>();
+  for (const record of records) for (const session of record.payload.sessions) for (const exercise of session.exercises) {
+    if (exercise.kind !== "strength") continue;
+    const key = exercise.name.toLocaleLowerCase();
+    const current = stats.get(key) ?? { sessions: 0, maximumWeight: null, estimatedOneRepMax: null, recentNote: "" };
+    current.sessions += 1;
+    if (!current.recentNote && exercise.note.trim()) current.recentNote = exercise.note.trim();
+    for (const set of exercise.sets) {
+      if (set.weightKg !== null) current.maximumWeight = Math.max(current.maximumWeight ?? set.weightKg, set.weightKg);
+      if (set.weightKg !== null && set.reps !== null) {
+        const estimate = Math.round(set.weightKg * (1 + set.reps / 30) * 10) / 10;
+        current.estimatedOneRepMax = Math.max(current.estimatedOneRepMax ?? estimate, estimate);
+      }
+    }
+    stats.set(key, current);
+  }
+  return stats;
 }
 
 export function WorkoutApp({
@@ -192,6 +213,7 @@ export function WorkoutApp({
     }
     return names.slice(0, 6);
   }, [history]);
+  const strengthStats = useMemo(() => buildStrengthStats(history), [history]);
 
   function updateSession(change: (session: WorkoutSession) => void) {
     mutate((payload) => {
@@ -301,6 +323,7 @@ export function WorkoutApp({
 
               {session.exercises.map((exercise) => exercise.kind === "strength" ? (
                 <StrengthEditor key={exercise.id} exercise={exercise} editable={editable}
+                  stats={strengthStats.get(exercise.name.toLocaleLowerCase())}
                   update={(change) => updateExercise(exercise.id, change)}
                   confirmSet={(setId) => updateSession((target) => {
                     const item = target.exercises.find((candidate) => candidate.id === exercise.id);
@@ -349,14 +372,16 @@ export function WorkoutApp({
 
 function numberValue(value: string) { return value === "" ? null : Number(value); }
 
-function StrengthEditor({ exercise, editable, update, confirmSet }: {
+function StrengthEditor({ exercise, editable, stats, update, confirmSet }: {
   exercise: StrengthExercise;
   editable: boolean;
+  stats?: StrengthStats;
   update(change: (exercise: WorkoutExercise) => void): void;
   confirmSet(id: string): void;
 }) {
   return <article className="strengthExercise">
     <input className="exerciseName" value={exercise.name} disabled={!editable} onChange={(event) => update((item) => { item.name = event.target.value; })} />
+    {stats ? <div className="strengthStats"><span>{stats.sessions} 次</span>{stats.maximumWeight !== null ? <span>max {stats.maximumWeight} kg</span> : null}{stats.estimatedOneRepMax !== null ? <span>e1RM {stats.estimatedOneRepMax}</span> : null}{stats.recentNote ? <small>{stats.recentNote}</small> : null}</div> : null}
     <div className="setLabels"><span>#</span><span>kg</span><span>次</span><span>RPE</span><span>RIR</span><span /></div>
     {exercise.sets.map((set, index) => <div className="workoutSetBlock" key={set.id}><div className={set.confirmed ? "workoutSet confirmed" : "workoutSet ghost"}>
       <span>{index + 1}</span>

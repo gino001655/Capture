@@ -858,6 +858,8 @@ button:disabled {
 .desktopWorkoutSession input { padding: 10px 12px; font-weight: 700; }
 .desktopWorkout article { padding: 10px 12px; border-bottom: 1px solid var(--line); }
 .desktopExerciseName { width: 100%; padding: 3px 0 8px; font-weight: 700; }
+.desktopStrengthStats { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: -4px 0 6px; opacity: 0.55; font-size: 0.58rem; }
+.desktopStrengthStats small { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .desktopSet { display: grid; grid-template-columns: 20px repeat(4, 1fr) 28px; gap: 4px; align-items: center; padding: 3px 0; transition: opacity 120ms ease; }
 .desktopSet.ghost { opacity: 0.42; }
 .desktopSet.labels { opacity: 0.42; font-size: 0.58rem; text-align: center; }

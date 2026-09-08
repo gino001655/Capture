@@ -113,6 +113,19 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
       if (found) return found;
     }
   }
+  function stats(exerciseName: string) {
+    let sessions = 0; let maximumWeight: number | null = null; let estimatedOneRepMax: number | null = null; let recentNote = "";
+    for (const record of history) for (const session of record.payload.sessions) for (const exercise of session.exercises) {
+      if (exercise.kind !== "strength" || exercise.name.toLocaleLowerCase() !== exerciseName.toLocaleLowerCase()) continue;
+      sessions += 1;
+      if (!recentNote && exercise.note.trim()) recentNote = exercise.note.trim();
+      for (const set of exercise.sets) {
+        if (set.weightKg !== null) maximumWeight = Math.max(maximumWeight ?? set.weightKg, set.weightKg);
+        if (set.weightKg !== null && set.reps !== null) estimatedOneRepMax = Math.max(estimatedOneRepMax ?? 0, Math.round(set.weightKg * (1 + set.reps / 30) * 10) / 10);
+      }
+    }
+    return { sessions, maximumWeight, estimatedOneRepMax, recentNote };
+  }
   function addExercise(raw: string) {
     const exerciseName = raw.trim(); if (!exerciseName || !activeSession) return;
     const old = previous(exerciseName);
@@ -141,6 +154,7 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
         <div className="desktopWorkoutSession"><input placeholder="訓練" value={activeSession.name} disabled={!editable} onChange={(event) => updateSession((target) => { target.name = event.target.value; })} /><button disabled={!editable} onClick={() => updateSession((target) => { target.completedAt = target.completedAt ? null : new Date().toISOString(); })}>{activeSession.completedAt ? "↶" : "✓"}</button></div>
         {activeSession.exercises.map((exercise: WorkoutExercise) => exercise.kind === "strength" ? <article key={exercise.id}>
           <input className="desktopExerciseName" value={exercise.name} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { target.name = event.target.value; })} />
+          {(() => { const summary = stats(exercise.name); return summary.sessions ? <div className="desktopStrengthStats"><span>{summary.sessions} 次</span>{summary.maximumWeight !== null ? <span>max {summary.maximumWeight} kg</span> : null}{summary.estimatedOneRepMax !== null ? <span>e1RM {summary.estimatedOneRepMax}</span> : null}{summary.recentNote ? <small>{summary.recentNote}</small> : null}</div> : null; })()}
           <div className="desktopSet labels"><span>#</span><span>kg</span><span>次</span><span>RPE</span><span>RIR</span><span /></div>
           {exercise.sets.map((set: WorkoutSet, index: number) => <div key={set.id} className="desktopSetBlock"><div className={set.confirmed ? "desktopSet" : "desktopSet ghost"}><span>{index + 1}</span>{(["weightKg", "reps", "rpe", "rir"] as const).map((key) => <input key={key} type="number" value={set[key] ?? ""} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index][key] = numeric(event.target.value); })} />)}<button disabled={!editable} onClick={() => updateSession((target) => { const item = target.exercises.find((candidate) => candidate.id === exercise.id); if (item?.kind === "strength") item.sets[index].confirmed = true; target.restTimer = { startedAt: new Date().toISOString(), elapsedSeconds: 0, running: true }; })}>{set.confirmed ? "✓" : "○"}</button></div><div className="desktopSetMeta"><select value={set.type} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index].type = event.target.value as WorkoutSet["type"]; })}><option value="working">正式</option><option value="warmup">熱身</option><option value="drop">遞減</option><option value="failure">力竭</option></select><input placeholder="這組註記" value={set.note} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index].note = event.target.value; })} /></div></div>)}
           {editable ? <button className="desktopAddSet" onClick={() => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets.push(blankSet(target.sets[target.sets.length - 1])); })}>＋ set</button> : null}
