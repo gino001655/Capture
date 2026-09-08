@@ -893,3 +893,25 @@ button:disabled {
 .desktopSegments > div { display: grid; grid-template-columns: 18px 1fr 1fr; gap: 5px; align-items: center; }
 .desktopSegments > div span { opacity: 0.45; font-size: 0.62rem; text-align: center; }
 .desktopSegments > button { justify-self: start; opacity: 0.55; }
+
+.desktopFood { display: grid; grid-template-rows: 34px minmax(0, 1fr); color: var(--ink); overflow: hidden; }
+.desktopFood > header { display: grid; grid-template-columns: 58px 1fr 1fr 22px; align-items: center; border-bottom: 1px solid var(--line); font-size: 0.62rem; text-align: center; }
+.desktopFood > header label { position: relative; display: grid; place-items: center; height: 100%; }
+.desktopFood > header label input { position: absolute; inset: 0; width: 100%; opacity: 0; }
+.desktopFood > header label:not(:first-child) { display: flex; justify-content: center; align-items: baseline; }
+.desktopFood > header label:not(:first-child) input { position: static; width: 38px; opacity: 1; text-align: start; font-size: 0.58rem; }
+.desktopFood > header strong { font-weight: 600; }
+.desktopFood > header i { font-style: normal; }
+.desktopFood > section { min-height: 0; overflow-y: auto; scrollbar-width: none; }
+.desktopFood > section::-webkit-scrollbar { display: none; }
+.desktopFood nav { display: flex; gap: 4px; overflow-x: auto; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+.desktopFood button, .desktopFood input, .desktopFood textarea { min-width: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
+.desktopFood nav button { flex: 0 0 auto; opacity: 0.62; }
+.desktopFood article { padding: 9px 11px; border-bottom: 1px solid var(--line); }
+.desktopFood article > div:first-child { display: grid; grid-template-columns: 1fr auto 24px; align-items: center; gap: 5px; }
+.desktopFoodName { padding: 3px 0 7px; font-weight: 700 !important; }
+.desktopFood article small { opacity: 0.42; }
+.desktopFoodFields { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.desktopFoodFields label { display: grid; gap: 2px; opacity: 0.65; font-size: 0.58rem; }
+.desktopFoodFields input { width: 100%; padding: 4px 1px; border-bottom: 1px solid var(--line); }
+.desktopFood article textarea { width: 100%; min-height: 30px; padding-top: 7px; resize: none; }

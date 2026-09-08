@@ -101,6 +101,39 @@ struct WorkoutLibraryResponse {
     record: Option<WorkoutLibraryRecord>,
 }
 
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FoodRecord {
+    id: String,
+    module_id: String,
+    journal_date: String,
+    payload: Value,
+    revision: u64,
+    processing_state: String,
+    created_at: String,
+    updated_at: String,
+    locked_at: Option<String>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct FoodSaveInput {
+    journal_date: String,
+    payload: Value,
+    expected_revision: Option<u64>,
+    client_updated_at: String,
+}
+
+#[derive(Deserialize)]
+struct FoodResponse {
+    record: Option<FoodRecord>,
+}
+
+#[derive(Deserialize)]
+struct FoodListResponse {
+    records: Vec<FoodRecord>,
+}
+
 fn error_message(status: u16, body: &str) -> String {
     serde_json::from_str::<Value>(body)
         .ok()
@@ -289,6 +322,67 @@ pub(crate) async fn save_workout_library(
         .await
         .map_err(|error| format!("Could not reach Workout library API: {error}"))?;
     decode_workout_library_response(response).await
+}
+
+async fn decode_food_response(response: reqwest::Response) -> Result<Option<FoodRecord>, String> {
+    let status = response.status();
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(error_message(status.as_u16(), &body));
+    }
+    serde_json::from_str::<FoodResponse>(&body)
+        .map(|payload| payload.record)
+        .map_err(|error| format!("Food API response was invalid: {error}"))
+}
+
+#[tauri::command]
+pub(crate) async fn get_food_record(
+    app: AppHandle,
+    journal_date: String,
+) -> Result<Option<FoodRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .get(config.endpoint(&format!("api/special-records/food?date={journal_date}")))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Food API: {error}"))?;
+    decode_food_response(response).await
+}
+
+#[tauri::command]
+pub(crate) async fn list_food_records(app: AppHandle) -> Result<Vec<FoodRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .get(config.endpoint("api/special-records/food"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Food API: {error}"))?;
+    let status = response.status();
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(error_message(status.as_u16(), &body));
+    }
+    serde_json::from_str::<FoodListResponse>(&body)
+        .map(|payload| payload.records)
+        .map_err(|error| format!("Food API response was invalid: {error}"))
+}
+
+#[tauri::command]
+pub(crate) async fn save_food_record(
+    app: AppHandle,
+    input: FoodSaveInput,
+) -> Result<Option<FoodRecord>, String> {
+    let config = WorkerConfig::load(&app)?;
+    let response = Client::new()
+        .put(config.endpoint("api/special-records/food"))
+        .bearer_auth(&config.device_token)
+        .json(&input)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach Food API: {error}"))?;
+    decode_food_response(response).await
 }
 
 #[cfg(test)]

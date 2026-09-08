@@ -4,7 +4,7 @@ import type { RecorderId } from "@capture/recorder-kit";
 import { EnglishApp } from "./english-app";
 import { JournalApp } from "./journal-app";
 import { WorkoutApp } from "./workout-app";
-import { ModuleRail } from "./module-rail";
+import { FoodApp } from "./food-app";
 
 export type WebRecorderProps = {
   accountEmail: string;
@@ -30,14 +30,8 @@ function WorkoutRecorder({ active, onSelectModule }: WebRecorderProps) {
   return <WorkoutApp active={active} onSelectModule={onSelectModule} />;
 }
 
-function placeholder(id: Extract<RecorderId, "workout" | "food">) {
-  return function Placeholder({ active, onSelectModule }: WebRecorderProps) {
-    return active ? (
-      <main className="specialPlaceholder">
-        <ModuleRail active={id} onSelect={onSelectModule} />
-      </main>
-    ) : null;
-  };
+function FoodRecorder({ active, onSelectModule }: WebRecorderProps) {
+  return <FoodApp active={active} onSelectModule={onSelectModule} />;
 }
 
 /**
@@ -49,5 +43,5 @@ export const WEB_RECORDER_PAGES = {
   journal: JournalRecorder,
   english: EnglishRecorder,
   workout: WorkoutRecorder,
-  food: placeholder("food"),
+  food: FoodRecorder,
 } satisfies Record<RecorderId, ComponentType<WebRecorderProps>>;

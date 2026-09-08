@@ -1,26 +1,34 @@
+import { invoke } from "@tauri-apps/api/core";
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import type { FoodEntry, FoodPayload, FoodRecord } from "../../../web/src/lib/food-record";
+import { emptyFoodPayload } from "../../../web/src/lib/food-record";
+import { shiftJournalDate } from "../journal";
 import type { CapturePageDefinition, CapturePageProps } from "./types";
 
-function FoodPage({ requestModeChange }: CapturePageProps) {
-  return (
-    <main
-      className="captureExtensionPage viewEnter"
-      aria-label="飲食紀錄（尚未實作）"
-      tabIndex={0}
-      onKeyDown={(event) => {
-        if (event.ctrlKey && event.key === "ArrowLeft") {
-          event.preventDefault();
-          requestModeChange(-1);
-        }
-        if (event.ctrlKey && event.key === "ArrowRight") {
-          event.preventDefault();
-          requestModeChange(1);
-        }
-      }}
-    />
-  );
-}
+const KEY = "capture.desktop.food.v1";
+type Local = { payload: FoodPayload; revision: number | null; pending: boolean; clientUpdatedAt: string };
+type Cache = Record<string, Local>;
+function taipeiDate() { const parts = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Taipei", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(new Date()); const value = Object.fromEntries(parts.map((part) => [part.type, part.value])); return `${value.year}-${value.month}-${value.day}`; }
+function read(): Cache { try { return JSON.parse(localStorage.getItem(KEY) ?? "{}"); } catch { return {}; } }
+function write(value: Cache) { try { localStorage.setItem(KEY, JSON.stringify(value)); } catch { /* memory remains */ } }
+function numeric(value: string) { return value === "" ? null : Number(value); }
 
-export default {
-  id: "food",
-  Component: FoodPage,
-} satisfies CapturePageDefinition;
+function FoodPage({ requestModeChange }: CapturePageProps) {
+  const today = taipeiDate(); const [date, setDate] = useState(today);
+  const [local, setLocal] = useState<Local>(() => read()[today] ?? { payload: emptyFoodPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() });
+  const [history, setHistory] = useState<FoodRecord[]>([]); const [issue, setIssue] = useState(false);
+  const localRef = useRef(local); const dateRef = useRef(date); const timer = useRef<number | null>(null);
+  const editable = date === today || date === shiftJournalDate(today, -1);
+  const publish = useCallback((targetDate: string, next: Local) => { localRef.current = next; if (targetDate === dateRef.current) setLocal(next); const values = read(); values[targetDate] = next; write(values); }, []);
+  const sync = useCallback(async (targetDate: string, candidate = localRef.current) => { if (!candidate.pending) return; try { const record = await invoke<FoodRecord | null>("save_food_record", { input: { journalDate: targetDate, payload: candidate.payload, expectedRevision: candidate.revision, clientUpdatedAt: candidate.clientUpdatedAt } }); const current = read()[targetDate] ?? candidate; if (current.clientUpdatedAt === candidate.clientUpdatedAt) publish(targetDate, { ...current, revision: record?.revision ?? null, pending: false }); setIssue(false); } catch { setIssue(true); } }, [publish]);
+  const mutate = useCallback((change: (payload: FoodPayload) => void) => { const payload = structuredClone(localRef.current.payload); change(payload); const next = { ...localRef.current, payload, pending: true, clientUpdatedAt: new Date().toISOString() }; publish(dateRef.current, next); if (timer.current !== null) window.clearTimeout(timer.current); timer.current = window.setTimeout(() => void sync(dateRef.current), 800); }, [publish, sync]);
+  const load = useCallback(async (targetDate: string) => { dateRef.current = targetDate; setDate(targetDate); const cached = read()[targetDate]; if (cached) publish(targetDate, cached); try { const record = await invoke<FoodRecord | null>("get_food_record", { journalDate: targetDate }); if (!read()[targetDate]?.pending) publish(targetDate, record ? { payload: record.payload, revision: record.revision, pending: false, clientUpdatedAt: record.updatedAt } : { payload: emptyFoodPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() }); setIssue(false); } catch { if (!cached) setIssue(true); } }, [publish]);
+  useEffect(() => { void load(today); void invoke<FoodRecord[]>("list_food_records").then(setHistory).catch(() => setIssue(true)); }, [load, today]);
+  const recent = useMemo(() => { const values: FoodEntry[] = []; for (const record of history) for (const entry of [...record.payload.entries].reverse()) if (!values.some((item) => item.name.toLocaleLowerCase() === entry.name.toLocaleLowerCase())) values.push(entry); return values.slice(0, 6); }, [history]);
+  const totals = local.payload.entries.reduce((value, entry) => ({ calories: value.calories + (entry.calories ?? 0), protein: value.protein + (entry.proteinGrams ?? 0) }), { calories: 0, protein: 0 });
+  function add(source?: FoodEntry) { mutate((payload) => payload.entries.push({ id: crypto.randomUUID(), name: source?.name ?? "", quantity: source?.quantity ?? null, unit: source?.unit ?? "份", calories: source?.calories ?? null, proteinGrams: source?.proteinGrams ?? null, note: "", occurredAt: new Date().toISOString() })); }
+  function update(id: string, change: (entry: FoodEntry) => void) { mutate((payload) => { const target = payload.entries.find((entry) => entry.id === id); if (target) change(target); }); }
+  function keys(event: KeyboardEvent<HTMLElement>) { if (event.ctrlKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) { event.preventDefault(); requestModeChange(event.key === "ArrowLeft" ? -1 : 1); } }
+  return <main className="desktopFood viewEnter" tabIndex={0} onKeyDown={keys}><header><label>{date.slice(5).replace("-", ".")}<input type="date" max={today} value={date} onChange={(event) => void load(event.target.value)} /></label><label><strong>{totals.calories}/</strong><input aria-label="熱量目標" type="number" value={local.payload.calorieTarget ?? ""} disabled={!editable} onChange={(event) => mutate((payload) => { payload.calorieTarget = numeric(event.target.value); })} /></label><label><strong>{totals.protein}g/</strong><input aria-label="蛋白質目標" type="number" value={local.payload.proteinTargetGrams ?? ""} disabled={!editable} onChange={(event) => mutate((payload) => { payload.proteinTargetGrams = numeric(event.target.value); })} /></label><i>{issue ? "!" : local.pending ? "·" : ""}</i></header><section><nav>{recent.map((entry) => <button key={entry.id} disabled={!editable} onClick={() => add(entry)}>{entry.name}</button>)}<button disabled={!editable} onClick={() => add()}>＋</button></nav>{local.payload.entries.map((entry) => <article key={entry.id}><div><input className="desktopFoodName" placeholder="食物" value={entry.name} disabled={!editable} onChange={(event) => update(entry.id, (item) => { item.name = event.target.value; })} /><small>{new Intl.DateTimeFormat("zh-TW", { timeZone: "Asia/Taipei", hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date(entry.occurredAt))}</small>{editable ? <button onClick={() => mutate((payload) => { payload.entries = payload.entries.filter((item) => item.id !== entry.id); })}>×</button> : null}</div><div className="desktopFoodFields">{([['quantity','量'],['unit','單位'],['calories','kcal'],['proteinGrams','蛋白質 g']] as const).map(([key, label]) => <label key={key}>{label}<input type={key === "unit" ? "text" : "number"} value={entry[key] ?? ""} disabled={!editable} onChange={(event) => update(entry.id, (item) => { if (key === "unit") item.unit = event.target.value; else item[key] = numeric(event.target.value); })} /></label>)}</div><textarea placeholder="註記" value={entry.note} disabled={!editable} onChange={(event) => update(entry.id, (item) => { item.note = event.target.value; })} /></article>)}</section></main>;
+}
+export default { id: "food", Component: FoodPage } satisfies CapturePageDefinition;
