@@ -1,6 +1,6 @@
 # Capture Completion Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Eliminate remaining repository-side data-safety and reliability gaps and make third-party recorder creation easy without making Capture visually or architecturally heavy.
 
@@ -35,12 +35,12 @@
 - Produces: `createDateBoundDebounce(schedule, cancel)` whose `queue(date, candidate, save)` invokes `save(date, candidate)` with the exact scheduled values; `clampPastDate(candidate, today)` returns no date newer than today.
 - Consumes: existing local cache candidates and `shiftJournalDate`.
 
-- [ ] Write failing tests proving a queued save keeps its original date/candidate after visible date changes, a replacement cancels only the same recorder timer, and future swipe dates clamp to today.
-- [ ] Run `pnpm.cmd --filter @capture/web test` and confirm the new tests fail because the helper is absent.
-- [ ] Implement the pure helper and bind Workout/Food timers to captured values.
-- [ ] Make Food load immediately retry a cached pending candidate; add online/visibility retry and timer cleanup for Workout/Food.
-- [ ] Run the focused Web suite and then the full Web tests.
-- [ ] Commit `fix: bind special recorder saves to their dates`.
+- [x] Write failing tests proving a queued save keeps its original date/candidate after visible date changes, a replacement cancels only the same recorder timer, and future swipe dates clamp to today.
+- [x] Run `pnpm.cmd --filter @capture/web test` and confirm the new tests fail because the helper is absent.
+- [x] Implement the pure helper and bind Workout/Food timers to captured values.
+- [x] Make Food load immediately retry a cached pending candidate; add online/visibility retry and timer cleanup for Workout/Food.
+- [x] Run the focused Web suite and then the full Web tests.
+- [x] Commit `fix: bind special recorder saves to their dates`.
 
 ### Task 2: Explicit no-loss conflict resolution
 
@@ -59,13 +59,13 @@
 - Produces: `SpecialConflict<T>` containing `date`, durable `local`, and authoritative `cloud`; `keepLocal(conflict)` returns a pending candidate rebased to the Cloud revision; `useCloud(conflict)` returns a non-pending Cloud candidate.
 - Consumes: current API `409` bodies containing `record`.
 
-- [ ] Write failing tests that Cloud choice preserves the authoritative revision, local choice preserves the exact local payload while rebasing revision, and a missing Cloud record rebases to `null`.
-- [ ] Verify the tests fail for the missing conflict policy.
-- [ ] Implement the policy and persist conflict state with each local recorder cache.
-- [ ] Show one compact conflict strip on Web and Desktop with `雲端` and `本機`; no modal and no automatic winner.
-- [ ] Ensure successful resolution clears only the resolved conflict backup.
-- [ ] Run Web and Desktop tests/typechecks.
-- [ ] Commit `feat: resolve special recorder conflicts without data loss`.
+- [x] Write failing tests that Cloud choice preserves the authoritative revision, local choice preserves the exact local payload while rebasing revision, and a missing Cloud record rebases to `null`.
+- [x] Verify the tests fail for the missing conflict policy.
+- [x] Implement the policy and persist conflict state with each local recorder cache.
+- [x] Show one compact conflict strip on Web and Desktop with `雲端` and `本機`; no modal and no automatic winner.
+- [x] Ensure successful resolution clears only the resolved conflict backup.
+- [x] Run Web and Desktop tests/typechecks.
+- [x] Commit `feat: resolve special recorder conflicts without data loss`.
 
 ### Task 3: Food draft validation and target persistence
 
@@ -81,11 +81,11 @@
 - Produces: `isFoodPayloadReady(payload)` that refuses Cloud sync while any local row has a blank name; empty rows remain device-local drafts. A payload with custom targets but no rows remains a stored daily record.
 - Consumes: existing `FoodPayload` and store save contract.
 
-- [ ] Write failing parser/store tests for blank local draft readiness and target-only persistence.
-- [ ] Verify failures reflect current validation/deletion behavior.
-- [ ] Implement readiness gating in both clients and preserve target-only documents in the store.
-- [ ] Run food tests and both typechecks.
-- [ ] Commit `fix: preserve food drafts and nutrition targets`.
+- [x] Write failing parser/store tests for blank local draft readiness and target-only persistence.
+- [x] Verify failures reflect current validation/deletion behavior.
+- [x] Implement readiness gating in both clients and preserve target-only documents in the store.
+- [x] Run food tests and both typechecks.
+- [x] Commit `fix: preserve food drafts and nutrition targets`.
 
 ### Task 4: Retryable legacy job lifecycle
 
@@ -103,13 +103,13 @@
 - Produces: legacy states `pending | processing | failed | completed`, processing lease timestamps, `fail(id,error)`, and `retryFailed()`; PATCH accepts `{ outcome: "completed", result }` or `{ outcome: "failed", error }`.
 - Consumes: existing Desktop bearer authentication and claim endpoint.
 
-- [ ] Write failing store tests for failed reporting, retry delay, manual retry, and expired processing lease reclamation.
-- [ ] Write failing route tests for validated failure reports and retry authorization.
-- [ ] Implement the smallest compatible schema/store/route changes, preserving old completed documents.
-- [ ] Report processor failures from Desktop before returning the operator error.
-- [ ] Include failed legacy work in Check Now retry behavior.
-- [ ] Run Web route/store tests and Rust tests.
-- [ ] Commit `fix: make legacy capture failures retryable`.
+- [x] Write failing store tests for failed reporting, retry delay, manual retry, and expired processing lease reclamation.
+- [x] Write failing route tests for validated failure reports and retry authorization.
+- [x] Implement the smallest compatible schema/store/route changes, preserving old completed documents.
+- [x] Report processor failures from Desktop before returning the operator error.
+- [x] Include failed legacy work in Check Now retry behavior.
+- [x] Run Web route/store tests and Rust tests.
+- [x] Commit `fix: make legacy capture failures retryable`.
 
 ### Task 5: Bounded queue draining and resume triggers
 
@@ -122,12 +122,12 @@
 - Produces: `check_for_work` drains at most 20 items per wake and summarizes processed/failed/idle counts; a power/network resume requests the existing serialized check channel.
 - Consumes: the current non-overlapping worker trigger and journal/legacy claim APIs.
 
-- [ ] Extract a pure drain-decision function and write failing Rust tests for idle stop, 20-item bound, and failure stop after reporting.
-- [ ] Verify focused Rust failure.
-- [ ] Refactor one-item work into one iteration and implement the bounded loop.
-- [ ] Wire supported Tauri/Windows resume events to the existing trigger without starting a second loop.
-- [ ] Run Rust tests and Desktop typecheck.
-- [ ] Commit `feat: drain worker queues after wake`.
+- [x] Extract a pure drain-decision function and write failing Rust tests for idle stop, 20-item bound, and failure stop after reporting.
+- [x] Verify focused Rust failure.
+- [x] Refactor one-item work into one iteration and implement the bounded loop.
+- [x] Wire supported Tauri/Windows resume events to the existing trigger without starting a second loop.
+- [x] Run Rust tests and Desktop typecheck.
+- [x] Commit `feat: drain worker queues after wake`.
 
 ### Task 6: Lightweight offline Web shell
 
@@ -143,11 +143,11 @@
 - Produces: a same-origin service worker with versioned shell cache, network-first navigation fallback, cache-first immutable static assets, and no API mutation caching.
 - Consumes: existing recorder local caches.
 
-- [ ] Write a failing policy test that exercises exported request classification and proves `/api/**`, auth, and non-GET requests are never cached.
-- [ ] Verify failure before implementation.
-- [ ] Implement registration and service worker caching with an explicit cache version.
-- [ ] Run Web tests, lint, typecheck, and production build.
-- [ ] Commit `feat: open the capture shell offline`.
+- [x] Write a failing policy test that exercises exported request classification and proves `/api/**`, auth, and non-GET requests are never cached.
+- [x] Verify failure before implementation.
+- [x] Implement registration and service worker caching with an explicit cache version.
+- [x] Run Web tests, lint, typecheck, and production build.
+- [x] Commit `feat: open the capture shell offline`.
 
 ### Task 7: Recorder starter contract and generator
 
@@ -167,13 +167,13 @@
 - Produces: `RecorderManifest` metadata contract and `pnpm create:recorder -- <id> <label> <symbol>` dry-run-capable generator that creates a minimal Web/Desktop source pair and prints the single catalog edit still required by Next.js.
 - Consumes: existing `CapturePageDefinition`, `WebRecorderProps`, and typed catalog.
 
-- [ ] Write failing recorder-kit validation tests for lowercase stable IDs, unique ordering, compact symbols, and required labels.
-- [ ] Write a failing generator integration test in a temporary directory, asserting exact generated files and refusal to overwrite.
-- [ ] Verify both failures.
-- [ ] Implement the manifest validator and dependency-free generator.
-- [ ] Add the copyable starter and concise page creation standard covering lifecycle, accessibility, local cache, Cloud schema, and test expectations.
-- [ ] Run package/script tests and typechecks.
-- [ ] Commit `feat: add recorder starter workflow`.
+- [x] Write failing recorder-kit validation tests for lowercase stable IDs, unique ordering, compact symbols, and required labels.
+- [x] Write a failing generator integration test in a temporary directory, asserting exact generated files and refusal to overwrite.
+- [x] Verify both failures.
+- [x] Implement the manifest validator and dependency-free generator.
+- [x] Add the copyable starter and concise page creation standard covering lifecycle, accessibility, local cache, Cloud schema, and test expectations.
+- [x] Run package/script tests and typechecks.
+- [x] Commit `feat: add recorder starter workflow`.
 
 ### Task 8: Open-source project readiness
 
@@ -191,12 +191,12 @@
 - Produces: MIT licensing, a verified local setup path, extension entry links, secret-handling guidance, and a truthful feature/manual-verification matrix.
 - Consumes: commands already defined in the workspace.
 
-- [ ] Audit tracked files for committed credentials, machine-specific absolute paths, and stale shortcut/status claims.
-- [ ] Add MIT license and a concise contribution workflow using fork/branch/test/PR steps.
-- [ ] Rewrite the README entry path around install, configure, run, extend, and verify; keep advanced architecture in docs.
-- [ ] Update roadmap/status using only verified implementation evidence.
-- [ ] Run link/path and secret-pattern inspection plus lint.
-- [ ] Commit `docs: make Capture approachable to contributors`.
+- [x] Audit tracked files for committed credentials, machine-specific absolute paths, and stale shortcut/status claims.
+- [x] Add MIT license and a concise contribution workflow using fork/branch/test/PR steps.
+- [x] Rewrite the README entry path around install, configure, run, extend, and verify; keep advanced architecture in docs.
+- [x] Update roadmap/status using only verified implementation evidence.
+- [x] Run link/path and secret-pattern inspection plus lint.
+- [x] Commit `docs: make Capture approachable to contributors`.
 
 ### Task 9: Final audit and distributable
 
@@ -210,10 +210,10 @@
 - Produces: one consistent Desktop patch version and a fresh NSIS installer.
 - Consumes: all earlier tasks.
 
-- [ ] Re-read the approved product design, architecture, roadmap, and this spec; map every requirement to code/test/manual/external status.
-- [ ] Fix only remaining automatable contradictions through additional red-green cycles.
-- [ ] Bump the Desktop patch version consistently.
-- [ ] Run `pnpm.cmd test`, `pnpm.cmd typecheck`, `pnpm.cmd lint`, `pnpm.cmd build`, `pnpm.cmd --filter @capture/desktop build`, and `pnpm.cmd desktop:build` fresh and inspect exit codes.
-- [ ] Inspect Git diff/status, installer path/size/hash, and tracked-secret scan.
-- [ ] Commit `chore: prepare verified Capture release`.
+- [x] Re-read the approved product design, architecture, roadmap, and this spec; map every requirement to code/test/manual/external status.
+- [x] Fix only remaining automatable contradictions through additional red-green cycles.
+- [x] Bump the Desktop patch version consistently.
+- [x] Run `pnpm.cmd test`, `pnpm.cmd typecheck`, `pnpm.cmd lint`, `pnpm.cmd build`, `pnpm.cmd --filter @capture/desktop build`, and `pnpm.cmd desktop:build` fresh and inspect exit codes.
+- [x] Inspect Git diff/status, installer path/size/hash, and tracked-secret scan.
+- [x] Commit `chore: prepare verified Capture release`.
 - [ ] Report only true user/external blockers and ask for immediate push/deploy authorization.

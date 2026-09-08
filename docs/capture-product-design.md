@@ -78,13 +78,8 @@ The implemented Desktop shortcuts are `Ctrl + Numpad 5` for Quick Capture and `C
 - Opening the app defaults to a new or resumable Journal capture sheet; this is the most common flow.
 - The center of the screen presents six seamless writing areas (`○ * ? ! + ~`) at once. The user does not switch among six separate category pages.
 - There is no submit button. Editing feels like a notes app and saves automatically.
-- The top controls remain on one compact row, in the established arrangement:
-  - settings;
-  - previous day;
-  - compact date such as `8.18`, also acting as a date picker;
-  - next day;
-  - edit / records view.
-- Previous and next controls provide fast movement across nearby dates; the date picker supports arbitrary dates.
+- The top controls remain on one compact row: settings, compact date such as `8.18` (also a date picker), and records/new action.
+- Horizontal swipe moves across nearby dates with a short transition; the date picker supports arbitrary dates. No duplicate edge or toolbar arrows are shown.
 - The edit control replaces the center editor with a scrollable list of that day's records. Selecting a record opens its six areas for editing.
 - When the current sheet contains content, a small new-record button appears at the lower right. Activating it completes the current record and opens a blank six-area sheet.
 - Closing or backgrounding the app for less than 10 minutes resumes the same sheet.
@@ -239,7 +234,7 @@ Full Journal ↔ Quick Capture ↔ English ↔ Workout ↔ Food ↔ Future modes
 - History initially shows the last complete record, recent weight/repetition trend, maximum weight, estimated 1RM, and recent notes. The initial PR indicators are highest weight and highest estimated 1RM.
 - Bodyweight and assisted movements use the ordinary weight × repetitions structure. Superset/circuit grouping is reserved in the payload but not implemented initially.
 - Running is a workout exercise type. It supports manual total distance and duration, derived average pace, optional average/maximum heart rate, temperature, elevation gain, RPE, notes, and optional distance/duration segments with derived pace. GPS and COROS import are deferred.
-- Workout and Food may edit today and yesterday; older dates are read-only. This window remains an explicit implementation assumption to verify during their milestones.
+- English, Workout, and Food permit edits only on the current Taipei date. Earlier dates remain available as read-only history; future dates cannot be selected.
 
 ### Food — Confirmed; core implemented
 

@@ -85,6 +85,10 @@ export function clampRecorderDate(candidate: string, today: string): string {
   return candidate > today ? today : candidate;
 }
 
+export function nextRecorderToday(currentToday: string, observedToday: string): string | null {
+  return observedToday > currentToday ? observedToday : null;
+}
+
 export function rebaseConflictCandidate<
   T extends { revision: number | null; pending: boolean },
 >(candidate: T, cloudRevision: number | null): T {

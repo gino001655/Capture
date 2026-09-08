@@ -7,11 +7,6 @@ import { workoutStore, type WorkoutStore } from "../../../../lib/workout-store.t
 type Authorizer = (request: Request) => Promise<AuthorizationResult>;
 type Store = Pick<WorkoutStore, "get" | "list" | "save">;
 
-function previousDate(date: string): string {
-  const [year, month, day] = date.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, day - 1)).toISOString().slice(0, 10);
-}
-
 function invalid(message: string) {
   return Response.json({ error: { code: "INVALID_WORKOUT_RECORD", message } }, { status: 400 });
 }
@@ -39,10 +34,10 @@ export function createWorkoutHandler(
     if (!validation.success) return invalid(validation.message);
 
     const today = toTaipeiDate(now());
-    const editableDates = new Set([today, previousDate(today)]);
-    if (!editableDates.has(validation.value.journalDate)) {
+    const editedDate = toTaipeiDate(new Date(validation.value.clientUpdatedAt));
+    if (validation.value.journalDate !== today && validation.value.journalDate !== editedDate) {
       return Response.json(
-        { error: { code: "RECORD_LOCKED", message: "Only today's and yesterday's workouts can be changed." } },
+        { error: { code: "RECORD_LOCKED", message: "Only today's workouts can be changed." } },
         { status: 409 },
       );
     }

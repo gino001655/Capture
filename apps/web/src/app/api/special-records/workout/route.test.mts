@@ -12,7 +12,7 @@ const body: WorkoutSaveInput = {
   payload: { schemaVersion: 1, sessions: [] },
 };
 
-test("allows yesterday but locks older workout edits", async () => {
+test("locks past workout edits but accepts an offline write made on that date", async () => {
   let saves = 0;
   const handler = createWorkoutHandler({
     async get() { return null; },
@@ -25,7 +25,8 @@ test("allows yesterday but locks older workout edits", async () => {
     body: JSON.stringify({ ...body, journalDate }),
   });
 
+  assert.equal((await handler(request("2026-09-08"))).status, 200);
   assert.equal((await handler(request("2026-09-07"))).status, 200);
   assert.equal((await handler(request("2026-09-06"))).status, 409);
-  assert.equal(saves, 1);
+  assert.equal(saves, 2);
 });

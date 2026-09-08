@@ -11,13 +11,13 @@ import type {
   WorkoutSession,
   WorkoutSet,
 } from "../lib/workout-record";
-import { emptyWorkoutPayload } from "../lib/workout-record";
+import { emptyWorkoutPayload, nextWorkoutSetIndex } from "../lib/workout-record";
 import { shiftJournalDate } from "./journal-session";
 import { ModuleRail, type CaptureModule } from "./module-rail";
 import { toTaipeiDate } from "../lib/special-record";
 import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../lib/workout-library";
 import { emptyWorkoutLibrary } from "../lib/workout-library";
-import { clampRecorderDate, createDateBoundDebounce, rebaseConflictCandidate, resolveVersionedPayloadConflict } from "@capture/recorder-kit";
+import { clampRecorderDate, createDateBoundDebounce, nextRecorderToday, rebaseConflictCandidate, resolveVersionedPayloadConflict } from "@capture/recorder-kit";
 
 const CACHE_KEY = "capture.workout.v1";
 const AUTOSAVE_MS = 800;
@@ -103,7 +103,7 @@ export function WorkoutApp({
   active: boolean;
   onSelectModule(module: CaptureModule): void;
 }) {
-  const today = toTaipeiDate(new Date());
+  const [today, setToday] = useState(() => toTaipeiDate(new Date()));
   const [selectedDate, setSelectedDate] = useState(today);
   const [local, setLocal] = useState<LocalWorkout>(() => readCache()[today] ?? {
     payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString(),
@@ -117,9 +117,11 @@ export function WorkoutApp({
   const [newExerciseName, setNewExerciseName] = useState("");
   const [issue, setIssue] = useState<string | null>(null);
   const [clock, setClock] = useState(0);
-  const touchStartRef = useRef<number | null>(null);
+  const [dateSlideDirection, setDateSlideDirection] = useState<"next" | "previous" | null>(null);
+  const touchStartRef = useRef<{ x: number; y: number } | null>(null);
   const localRef = useRef(local);
   const dateRef = useRef(selectedDate);
+  const todayRef = useRef(today);
   const syncDebounceRef = useRef<ReturnType<typeof createDateBoundDebounce<LocalWorkout>> | null>(null);
   syncDebounceRef.current ??= createDateBoundDebounce<LocalWorkout>({
     delayMs: AUTOSAVE_MS,
@@ -128,8 +130,10 @@ export function WorkoutApp({
   });
 
   const publish = useCallback((date: string, next: LocalWorkout) => {
-    localRef.current = next;
-    if (date === dateRef.current) setLocal(next);
+    if (date === dateRef.current) {
+      localRef.current = next;
+      setLocal(next);
+    }
     const cache = readCache();
     if (next.payload.sessions.length === 0 && !next.pending && next.revision === null) delete cache[date];
     else cache[date] = next;
@@ -182,13 +186,18 @@ export function WorkoutApp({
   }, [publish, sync]);
 
   const load = useCallback(async (date: string) => {
-    date = clampRecorderDate(date, today);
+    date = clampRecorderDate(date, todayRef.current);
     dateRef.current = date;
     setSelectedDate(date);
     setIssue(null);
     const cached = readCache()[date];
+    const visible = cached ?? {
+      payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString(),
+    };
+    publish(date, visible);
+    const visibleOpenIndex = visible.payload.sessions.findIndex((session) => session.completedAt === null);
+    setSessionIndex(visibleOpenIndex >= 0 ? visibleOpenIndex : Math.max(0, visible.payload.sessions.length - 1));
     if (cached) {
-      publish(date, cached);
       if (cached.pending) void sync(date, cached);
     }
     try {
@@ -200,10 +209,10 @@ export function WorkoutApp({
           : { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() };
         publish(date, next);
         const openIndex = next.payload.sessions.findIndex((session) => session.completedAt === null);
-        setSessionIndex(openIndex >= 0 ? openIndex : Math.max(0, next.payload.sessions.length - 1));
+        if (date === dateRef.current) setSessionIndex(openIndex >= 0 ? openIndex : Math.max(0, next.payload.sessions.length - 1));
       }
     } catch { if (!cached) setIssue("無法載入"); }
-  }, [publish, sync, today]);
+  }, [publish, sync]);
 
   useEffect(() => {
     if (!active) return;
@@ -240,11 +249,22 @@ export function WorkoutApp({
   }, [sync]);
 
   useEffect(() => {
-    const id = window.setInterval(() => setClock(Date.now()), 1_000);
+    const id = window.setInterval(() => {
+      const now = new Date();
+      setClock(now.getTime());
+      const nextToday = nextRecorderToday(todayRef.current, toTaipeiDate(now));
+      if (!nextToday) return;
+      const previousDate = dateRef.current;
+      const previous = readCache()[previousDate] ?? localRef.current;
+      if (previous.pending) void sync(previousDate, previous);
+      todayRef.current = nextToday;
+      setToday(nextToday);
+      void load(nextToday);
+    }, 1_000);
     return () => window.clearInterval(id);
-  }, []);
+  }, [load, sync]);
 
-  const editable = selectedDate === today || selectedDate === shiftJournalDate(today, -1);
+  const editable = selectedDate === today;
   const session = local.payload.sessions[sessionIndex] ?? null;
   const recentExercises = useMemo(() => {
     const names = library.entries.filter((entry) => !entry.archived).sort((left, right) => left.order - right.order).map((entry) => entry.name);
@@ -388,13 +408,21 @@ export function WorkoutApp({
   if (!active) return null;
   return (
     <main
-      className="workoutShell"
-      onPointerDown={(event) => { if (event.pointerType === "touch") touchStartRef.current = event.clientX; }}
+      className={dateSlideDirection === null ? "workoutShell" : `workoutShell dateSlide-${dateSlideDirection}`}
+      onAnimationEnd={() => setDateSlideDirection(null)}
+      onPointerDown={(event) => { if (event.pointerType === "touch") touchStartRef.current = { x: event.clientX, y: event.clientY }; }}
       onPointerUp={(event) => {
-        if (event.pointerType !== "touch" || touchStartRef.current === null) return;
-        const delta = event.clientX - touchStartRef.current;
+        const start = touchStartRef.current;
         touchStartRef.current = null;
-        if (Math.abs(delta) > 70) void load(shiftJournalDate(selectedDate, delta > 0 ? -1 : 1));
+        if (event.pointerType !== "touch" || !start || historyOpen) return;
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+        const direction = dx < 0 ? 1 : -1;
+        const nextDate = clampRecorderDate(shiftJournalDate(selectedDate, direction), today);
+        if (nextDate === selectedDate) return;
+        setDateSlideDirection(direction > 0 ? "next" : "previous");
+        void load(nextDate);
       }}
     >
       <header className="workoutToolbar">
@@ -447,13 +475,16 @@ export function WorkoutApp({
                 <StrengthEditor key={exercise.id} exercise={exercise} editable={editable}
                   stats={strengthStats.get(exercise.libraryEntryId ?? exercise.name.toLocaleLowerCase())}
                   update={(change) => updateExercise(exercise.id, change)}
-                  confirmSet={(setId) => updateSession((target) => {
+                  confirmSet={(setId, nextSetId) => {
+                    updateSession((target) => {
                     const item = target.exercises.find((candidate) => candidate.id === exercise.id);
                     if (item?.kind !== "strength") return;
                     const set = item.sets.find((candidate) => candidate.id === setId);
                     if (set) set.confirmed = true;
                     target.restTimer = { startedAt: new Date().toISOString(), elapsedSeconds: 0, running: true };
-                  })}
+                    });
+                    if (nextSetId) queueMicrotask(() => document.querySelector<HTMLInputElement>(`[data-workout-set="${nextSetId}"] input`)?.focus());
+                  }}
                 />
               ) : (
                 <RunningEditor key={exercise.id} exercise={exercise} editable={editable} update={(change) => updateExercise(exercise.id, change)} />
@@ -499,20 +530,20 @@ function StrengthEditor({ exercise, editable, stats, update, confirmSet }: {
   editable: boolean;
   stats?: StrengthStats;
   update(change: (exercise: WorkoutExercise) => void): void;
-  confirmSet(id: string): void;
+  confirmSet(id: string, nextId?: string): void;
 }) {
   return <article className="strengthExercise">
     <input className="exerciseName" value={exercise.name} disabled={!editable} onChange={(event) => update((item) => { item.name = event.target.value; })} />
     {stats ? <div className="strengthStats"><span>{stats.sessions} 次</span>{stats.maximumWeight !== null ? <span>max {stats.maximumWeight} kg</span> : null}{stats.estimatedOneRepMax !== null ? <span>e1RM {stats.estimatedOneRepMax}</span> : null}{stats.recentNote ? <small>{stats.recentNote}</small> : null}</div> : null}
     <div className="setLabels"><span>#</span><span>kg</span><span>次</span><span>RPE</span><span>RIR</span><span /></div>
-    {exercise.sets.map((set, index) => <div className="workoutSetBlock" key={set.id}><div className={set.confirmed ? "workoutSet confirmed" : "workoutSet ghost"}>
+    {exercise.sets.map((set, index) => { const nextIndex = nextWorkoutSetIndex(index, exercise.sets.length); const nextId = nextIndex === null ? undefined : exercise.sets[nextIndex]?.id; return <div className="workoutSetBlock" key={set.id} data-workout-set={set.id}><div className={set.confirmed ? "workoutSet confirmed" : "workoutSet ghost"}>
       <span>{index + 1}</span>
-      <input type="number" inputMode="decimal" value={set.weightKg ?? ""} disabled={!editable} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].weightKg = numberValue(event.target.value); })} />
-      <input type="number" inputMode="numeric" value={set.reps ?? ""} disabled={!editable} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].reps = numberValue(event.target.value); })} />
-      <input type="number" inputMode="decimal" value={set.rpe ?? ""} disabled={!editable} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].rpe = numberValue(event.target.value); })} />
-      <input type="number" inputMode="decimal" value={set.rir ?? ""} disabled={!editable} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].rir = numberValue(event.target.value); })} />
-      <button disabled={!editable} onClick={() => confirmSet(set.id)}>{set.confirmed ? "✓" : "○"}</button>
-    </div><div className="workoutSetMeta"><select value={set.type} disabled={!editable} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].type = event.target.value as WorkoutSet["type"]; })}><option value="working">正式</option><option value="warmup">熱身</option><option value="drop">遞減</option><option value="failure">力竭</option></select><input placeholder="這組註記" value={set.note} disabled={!editable} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].note = event.target.value; })} /></div></div>)}
+      <input type="number" inputMode="decimal" value={set.weightKg ?? ""} disabled={!editable} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); confirmSet(set.id, nextId); } }} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].weightKg = numberValue(event.target.value); })} />
+      <input type="number" inputMode="numeric" value={set.reps ?? ""} disabled={!editable} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); confirmSet(set.id, nextId); } }} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].reps = numberValue(event.target.value); })} />
+      <input type="number" inputMode="decimal" value={set.rpe ?? ""} disabled={!editable} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); confirmSet(set.id, nextId); } }} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].rpe = numberValue(event.target.value); })} />
+      <input type="number" inputMode="decimal" value={set.rir ?? ""} disabled={!editable} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); confirmSet(set.id, nextId); } }} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].rir = numberValue(event.target.value); })} />
+      <button disabled={!editable} onClick={() => confirmSet(set.id, nextId)}>{set.confirmed ? "✓" : "○"}</button>
+    </div><div className="workoutSetMeta"><select value={set.type} disabled={!editable} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].type = event.target.value as WorkoutSet["type"]; })}><option value="working">正式</option><option value="warmup">熱身</option><option value="drop">遞減</option><option value="failure">力竭</option></select><input placeholder="這組註記" value={set.note} disabled={!editable} onChange={(event) => update((item) => { if (item.kind === "strength") item.sets[index].note = event.target.value; })} /></div></div>; })}
     {editable ? <button className="cloneSet" onClick={() => update((item) => { if (item.kind === "strength") item.sets.push(blankSet(item.sets[item.sets.length - 1])); })}>＋ set</button> : null}
     <textarea placeholder="動作註記" value={exercise.note} disabled={!editable} onChange={(event) => update((item) => { item.note = event.target.value; })} />
   </article>;

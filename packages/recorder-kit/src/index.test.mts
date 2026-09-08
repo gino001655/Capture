@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   clampRecorderDate,
   createDateBoundDebounce,
+  nextRecorderToday,
   RECORDER_CATALOG,
   rebaseConflictCandidate,
   resolveVersionedPayloadConflict,
@@ -65,6 +66,12 @@ test("shared recorder autosave binds the queued date and a value snapshot", asyn
 
   assert.deepEqual(saved, [["2026-09-08", "original"]]);
   assert.equal(clampRecorderDate("2026-09-09", "2026-09-08"), "2026-09-08");
+});
+
+test("recorders roll forward at midnight but never roll backward", () => {
+  assert.equal(nextRecorderToday("2026-09-08", "2026-09-09"), "2026-09-09");
+  assert.equal(nextRecorderToday("2026-09-08", "2026-09-08"), null);
+  assert.equal(nextRecorderToday("2026-09-08", "2026-09-07"), null);
 });
 
 test("keeping a local conflict preserves its value and rebases only the Cloud revision", () => {

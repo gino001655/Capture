@@ -79,12 +79,12 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Discover special Capture pages from `capture-pages/*.page.tsx`. English, Workout, and Food keep immediate local pending caches and reach the Cloud through narrow Tauri commands that reuse the saved Desktop bearer-token configuration.
 - Show the authoritative Journal delivery queue in Worker Status and make `Check now` retry failures immediately.
 
-## English synchronization boundary
+## Special recorder synchronization boundary
 
-- Web and Desktop both persist each keystroke locally, then debounce Cloud writes.
+- Web and Desktop persist English, Workout, and Food changes locally first, then debounce Cloud writes.
 - Cloud writes carry an expected revision so a stale device cannot silently overwrite newer text. The UI preserves a conflicting local pending copy and offers explicit Cloud/local resolution.
-- The UI permits editing only the current Taipei date. A delayed offline write for an earlier date is accepted only when its recorded client edit timestamp belongs to that same date; this preserves pre-midnight offline text without opening normal past-date editing.
-- Past documents are read-only in both clients. Empty text deletes the current empty daily document, so blank days do not remain in `specialRecords`.
+- The UI permits editing only the current Taipei date and rolls forward after Taipei midnight. A delayed offline write for an earlier date is accepted only when its recorded client edit timestamp belongs to that same date; this preserves pre-midnight work without opening normal past-date editing.
+- Past records are read-only in both clients. Empty English text deletes the current empty daily document, while incomplete Food rows remain local until they have enough data to sync.
 - The current slice includes the content-date history list, offline shell, reconnect retry, and explicit conflict resolution. It does not include background-sync API reliance, AI/Anki transformation, or completed cross-device manual verification.
 
 ### Processor

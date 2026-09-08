@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { emptyWorkoutPayload, validateWorkoutSaveRequest, type WorkoutSaveInput } from "./workout-record.ts";
+import { emptyWorkoutPayload, nextWorkoutSetIndex, validateWorkoutSaveRequest, type WorkoutSaveInput } from "./workout-record.ts";
 
 const input: WorkoutSaveInput = {
   journalDate: "2026-09-08",
@@ -61,4 +61,11 @@ test("rejects malformed workout payloads without persisting empty placeholders",
   const invalid = structuredClone(input) as unknown as Record<string, unknown>;
   ((invalid.payload as { sessions: Array<{ exercises: Array<{ sets: Array<{ rpe: number }> }> }> }).sessions[0].exercises[0].sets[0]).rpe = 12;
   assert.equal(validateWorkoutSaveRequest(invalid).success, false);
+});
+
+test("set confirmation advances only when another copied set exists", () => {
+  assert.equal(nextWorkoutSetIndex(0, 3), 1);
+  assert.equal(nextWorkoutSetIndex(1, 3), 2);
+  assert.equal(nextWorkoutSetIndex(2, 3), null);
+  assert.equal(nextWorkoutSetIndex(-1, 3), null);
 });

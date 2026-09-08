@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { clampRecorderDate, createDateBoundDebounce, rebaseConflictCandidate, resolveVersionedPayloadConflict } from "@capture/recorder-kit";
+import { clampRecorderDate, createDateBoundDebounce, nextRecorderToday, rebaseConflictCandidate, resolveVersionedPayloadConflict } from "@capture/recorder-kit";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import type {
@@ -11,10 +11,9 @@ import type {
   WorkoutSession,
   WorkoutSet,
 } from "../../../web/src/lib/workout-record";
-import { emptyWorkoutPayload } from "../../../web/src/lib/workout-record";
+import { emptyWorkoutPayload, nextWorkoutSetIndex } from "../../../web/src/lib/workout-record";
 import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../../../web/src/lib/workout-library";
 import { emptyWorkoutLibrary } from "../../../web/src/lib/workout-library";
-import { shiftJournalDate } from "../journal";
 import type { CapturePageDefinition, CapturePageProps } from "./types";
 
 const CACHE_KEY = "capture.desktop.workout.v1";
@@ -40,7 +39,7 @@ function newSession(): WorkoutSession {
 function numeric(value: string) { return value === "" ? null : Number(value); }
 
 function WorkoutPage({ requestModeChange }: CapturePageProps) {
-  const today = taipeiDate();
+  const [today, setToday] = useState(taipeiDate);
   const [date, setDate] = useState(today);
   const [local, setLocal] = useState<LocalWorkout>(() => readCache()[today] ?? { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() });
   const [history, setHistory] = useState<WorkoutRecord[]>([]);
@@ -53,14 +52,17 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   const [now, setNow] = useState(Date.now());
   const localRef = useRef(local);
   const dateRef = useRef(date);
+  const todayRef = useRef(today);
   const syncDebounceRef = useRef<ReturnType<typeof createDateBoundDebounce<LocalWorkout>> | null>(null);
   syncDebounceRef.current ??= createDateBoundDebounce<LocalWorkout>({ delayMs: 800, schedule: (callback, delayMs) => window.setTimeout(callback, delayMs), cancel: (handle) => window.clearTimeout(handle as number) });
-  const editable = date === today || date === shiftJournalDate(today, -1);
+  const editable = date === today;
   const activeSession = local.payload.sessions.find((item) => item.completedAt === null) ?? local.payload.sessions[local.payload.sessions.length - 1] ?? null;
 
   const publish = useCallback((targetDate: string, next: LocalWorkout) => {
-    localRef.current = next;
-    if (targetDate === dateRef.current) setLocal(next);
+    if (targetDate === dateRef.current) {
+      localRef.current = next;
+      setLocal(next);
+    }
     const cache = readCache(); cache[targetDate] = next; writeCache(cache);
   }, []);
 
@@ -86,7 +88,7 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   }, [publish, sync]);
 
   const load = useCallback(async (targetDate: string) => {
-    targetDate = clampRecorderDate(targetDate, today);
+    targetDate = clampRecorderDate(targetDate, todayRef.current);
     dateRef.current = targetDate; setDate(targetDate);
     const cached = readCache()[targetDate];
     if (cached?.pending) { publish(targetDate, cached); void sync(targetDate, cached); return; }
@@ -97,11 +99,11 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
         : { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() });
       setIssue(false);
     } catch { setIssue(true); }
-  }, [publish, sync, today]);
+  }, [publish, sync]);
 
-  useEffect(() => { void load(today); void invoke<WorkoutRecord[]>("list_workout_records").then(setHistory).catch(() => setIssue(true)); void invoke<WorkoutLibraryRecord | null>("get_workout_library").then((record) => { setLibrary(record?.payload ?? emptyWorkoutLibrary()); setLibraryRevision(record?.revision ?? null); }).catch(() => setIssue(true)); }, [load, today]);
+  useEffect(() => { void load(todayRef.current); void invoke<WorkoutRecord[]>("list_workout_records").then(setHistory).catch(() => setIssue(true)); void invoke<WorkoutLibraryRecord | null>("get_workout_library").then((record) => { setLibrary(record?.payload ?? emptyWorkoutLibrary()); setLibraryRevision(record?.revision ?? null); }).catch(() => setIssue(true)); }, [load]);
   useEffect(() => { const retryPending = () => { for (const [targetDate, candidate] of Object.entries(readCache())) if (candidate.pending) void sync(targetDate, candidate); }; window.addEventListener("online", retryPending); return () => { window.removeEventListener("online", retryPending); syncDebounceRef.current?.cancel(); }; }, [sync]);
-  useEffect(() => { const id = window.setInterval(() => setNow(Date.now()), 1_000); return () => window.clearInterval(id); }, []);
+  useEffect(() => { const id = window.setInterval(() => { const current = new Date(); setNow(current.getTime()); const nextToday = nextRecorderToday(todayRef.current, taipeiDate()); if (!nextToday) return; const previousDate = dateRef.current; const previous = readCache()[previousDate] ?? localRef.current; if (previous.pending) void sync(previousDate, previous); todayRef.current = nextToday; setToday(nextToday); void load(nextToday); }, 1_000); return () => window.clearInterval(id); }, [load, sync]);
 
   const recent = useMemo(() => {
     const names = library.entries.filter((entry) => !entry.archived).sort((left, right) => left.order - right.order).map((entry) => entry.name);
@@ -110,6 +112,18 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   }, [history, library]);
 
   function keyNavigation(event: KeyboardEvent<HTMLElement>) {
+    if (!event.ctrlKey && event.key === "Enter" && event.target instanceof HTMLInputElement) {
+      const row = event.target.closest<HTMLElement>(".desktopSet");
+      if (!row) return;
+      event.preventDefault();
+      const exercise = row.closest("article");
+      const rows = [...(exercise ?? event.currentTarget).querySelectorAll<HTMLElement>(".desktopSet")];
+      const index = rows.indexOf(row);
+      row.querySelector<HTMLButtonElement>("button")?.click();
+      const nextIndex = nextWorkoutSetIndex(index, rows.length);
+      if (nextIndex !== null) queueMicrotask(() => rows[nextIndex]?.querySelector<HTMLInputElement>("input")?.focus());
+      return;
+    }
     if (!event.ctrlKey) return;
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
       event.preventDefault(); requestModeChange(event.key === "ArrowLeft" ? -1 : 1);

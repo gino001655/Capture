@@ -6,6 +6,7 @@ import { rebaseConflictCandidate } from "@capture/recorder-kit";
 import type { EnglishRecord } from "../lib/special-record";
 import { toTaipeiDate } from "../lib/special-record";
 import { ModuleRail, type CaptureModule } from "./module-rail";
+import { shiftJournalDate } from "./journal-session";
 
 const STORAGE_KEY = "capture.english.v1";
 const AUTOSAVE_DELAY_MS = 800;
@@ -67,6 +68,8 @@ export function EnglishApp({
   const syncingDatesRef = useRef(new Set<string>());
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const editorRef = useRef<HTMLTextAreaElement>(null);
+  const swipeStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [dateSlideDirection, setDateSlideDirection] = useState<"next" | "previous" | null>(null);
 
   const publish = useCallback((date: string, next: LocalEnglishDocument) => {
     if (date === activeDateRef.current) {
@@ -219,7 +222,26 @@ export function EnglishApp({
   }
 
   return (
-    <main className="englishShell" hidden={!active}>
+    <main
+      className={dateSlideDirection === null ? "englishShell" : `englishShell dateSlide-${dateSlideDirection}`}
+      hidden={!active}
+      onAnimationEnd={() => setDateSlideDirection(null)}
+      onPointerDown={(event) => { if (event.pointerType === "touch") swipeStartRef.current = { x: event.clientX, y: event.clientY }; }}
+      onPointerUp={(event) => {
+        const start = swipeStartRef.current;
+        swipeStartRef.current = null;
+        if (event.pointerType !== "touch" || !start || historyOpen) return;
+        const dx = event.clientX - start.x;
+        const dy = event.clientY - start.y;
+        if (Math.abs(dx) < 70 || Math.abs(dx) < Math.abs(dy) * 1.25) return;
+        const direction = dx < 0 ? 1 : -1;
+        const nextDate = shiftJournalDate(selectedDate, direction);
+        if (nextDate > today) return;
+        activeDateRef.current = nextDate;
+        setDateSlideDirection(direction > 0 ? "next" : "previous");
+        setSelectedDate(nextDate);
+      }}
+    >
       <header className="englishToolbar">
         <label>
           <span>{Number(month)}.{Number(day)}</span>

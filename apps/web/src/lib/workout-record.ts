@@ -186,3 +186,10 @@ export function validateWorkoutSaveRequest(input: unknown): ValidationResult {
 export function emptyWorkoutPayload(): WorkoutPayload {
   return { schemaVersion: 1, sessions: [] };
 }
+
+export function nextWorkoutSetIndex(currentIndex: number, setCount: number): number | null {
+  if (!Number.isSafeInteger(currentIndex) || currentIndex < 0 || currentIndex + 1 >= setCount) {
+    return null;
+  }
+  return currentIndex + 1;
+}
