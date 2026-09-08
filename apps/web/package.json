@@ -8,7 +8,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --test src/lib/*.test.mts src/app/manifest.test.mts src/app/english-layout.test.mts src/app/journal-session.test.mts src/app/journal-sync.test.mts src/app/journal-ui.test.mts src/app/journal-view.test.mts src/app/journal-browser-events.test.mts src/app/api/captures/route.test.mts src/app/api/journal-records/route.test.mts src/app/api/journal-records/trash/route.test.mts src/app/api/journal-records/[[]id[]]/route.test.mts src/app/api/journal-records/[[]id[]]/restore/route.test.mts src/app/api/special-records/english/route.test.mts",
+    "test": "node --test src/lib/*.test.mts src/app/manifest.test.mts src/app/english-layout.test.mts src/app/journal-session.test.mts src/app/journal-sync.test.mts src/app/journal-ui.test.mts src/app/journal-view.test.mts src/app/journal-browser-events.test.mts src/app/api/captures/route.test.mts src/app/api/journal-records/route.test.mts src/app/api/journal-records/trash/route.test.mts src/app/api/journal-records/[[]id[]]/route.test.mts src/app/api/journal-records/[[]id[]]/restore/route.test.mts src/app/api/journal-deliveries/route.test.mts src/app/api/journal-deliveries/claim/route.test.mts src/app/api/journal-deliveries/[[]attemptId[]]/route.test.mts src/app/api/special-records/english/route.test.mts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

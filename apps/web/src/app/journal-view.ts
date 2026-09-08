@@ -231,13 +231,13 @@ export function JournalRecordListView({
           type: "button",
           key: record.id,
           "aria-label": deleteMode
-            ? record.deliveryState === "delivered"
+            ? record.deliveryState !== "undelivered"
               ? "已送出，不可刪除"
               : "移到垃圾桶"
-            : record.deliveryState === "delivered"
+            : record.deliveryState !== "undelivered"
               ? "檢視已送出紀錄"
               : "編輯紀錄",
-          disabled: deleteMode && record.deliveryState === "delivered",
+          disabled: deleteMode && record.deliveryState !== "undelivered",
           "aria-current": record.id === selectedId ? "true" : undefined,
           autoFocus: record.id === selectedId,
           onClick: () => onSelect(record),
@@ -281,7 +281,7 @@ export function JournalRecordEditorView({
   onBack,
   onToggleDeletions = () => undefined,
 }: JournalRecordEditorViewProps): ReactElement {
-  const locked = record.deliveryState === "delivered";
+  const locked = record.deliveryState !== "undelivered";
   const visibleKeys = locked ? JOURNAL_AREA_KEYS.filter((key) => areas[key].trim().length > 0) : JOURNAL_AREA_KEYS;
   const fields = visibleKeys.map((key) => {
     const diff = textEditDiff(originalAreas[key], areas[key]);

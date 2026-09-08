@@ -446,7 +446,7 @@ export function DesktopJournal() {
     const matching = records.find((record) => record.id === active.id);
     if (
       matching &&
-      (matching.deliveryState === "delivered" ||
+      (matching.deliveryState !== "undelivered" ||
         (active.revision !== null && matching.revision > active.revision))
     ) {
       return [matching, ...cloud];
@@ -659,7 +659,7 @@ export function DesktopJournal() {
       return;
     }
     returnToList();
-    if (record.deliveryState === "delivered") return;
+    if (record.deliveryState !== "undelivered") return;
 
     replaceCachedRecord(record);
     if (record.id === stateRef.current.active.id) {
@@ -694,7 +694,7 @@ export function DesktopJournal() {
   function handleRecordKey(event: ReactKeyboardEvent<HTMLElement>) {
     const record = editingRecord;
     if (!record) return;
-    if (record.deliveryState === "delivered") {
+    if (record.deliveryState !== "undelivered") {
       if (event.key === "Escape") {
         event.preventDefault();
         returnToList();
@@ -840,7 +840,7 @@ export function DesktopJournal() {
   }
 
   if (view === "record" && editingRecord) {
-    const delivered = editingRecord.deliveryState === "delivered";
+    const delivered = editingRecord.deliveryState !== "undelivered";
     const editCounts = editingOriginalAreas
       ? journalEditCounts(editingOriginalAreas, editingRecord.areas)
       : { added: 0, removed: 0 };
@@ -982,7 +982,7 @@ export function DesktopJournal() {
               </span>
             ))}
             <time dateTime={record.createdAt}>{recordTimeLabel(record.createdAt)}</time>
-            {record.deliveryState === "delivered" ? <em aria-label="已送出">◇</em> : null}
+            {record.deliveryState !== "undelivered" ? <em aria-label="已鎖定">◇</em> : null}
           </button>
         ))}
       </section>

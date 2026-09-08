@@ -7,22 +7,25 @@ import type {
   JournalUpdateInput,
 } from "./journal-record.ts";
 import { JOURNAL_AREA_KEYS } from "./journal-record.ts";
+import {
+  JOURNAL_DELIVERY_LEASE_MS,
+  JOURNAL_DELIVERY_RETRY_MS,
+  taipeiDeliveryBoundary,
+} from "./journal-delivery.ts";
+import { randomUUID } from "node:crypto";
 
 export type JournalDocument = Omit<JournalRecord, "id"> & {
   _id: string;
   deletedAt?: string;
 };
 
-type ExistsFilter = { $exists: boolean };
-type JournalFilter = Omit<Partial<JournalDocument>, "deletedAt"> & {
-  deletedAt?: string | ExistsFilter;
-};
+type JournalFilter = Record<string, unknown>;
 
 type JournalUpdate = {
   $setOnInsert?: JournalDocument;
   $set?: Partial<JournalDocument>;
-  $inc?: { revision: number };
-  $unset?: { deletedAt: "" };
+  $inc?: Partial<Record<"revision" | "deliveryAttempts", number>>;
+  $unset?: Record<string, "">;
 };
 
 export type JournalCollection = {
@@ -35,6 +38,10 @@ export type JournalCollection = {
     update: JournalUpdate,
     options?: { upsert?: boolean },
   ): Promise<unknown>;
+  updateMany(
+    filter: JournalFilter,
+    update: JournalUpdate,
+  ): Promise<{ modifiedCount?: number }>;
   findOne(filter: JournalFilter): Promise<JournalDocument | null>;
   findOneAndUpdate(
     filter: JournalFilter,
@@ -43,6 +50,7 @@ export type JournalCollection = {
   ): Promise<JournalDocument | null>;
   find(filter: JournalFilter): {
     sort(sort: Record<string, 1 | -1>): {
+      limit(limit: number): { toArray(): Promise<JournalDocument[]> };
       toArray(): Promise<JournalDocument[]>;
     };
   };
@@ -72,6 +80,33 @@ export type JournalRestoreOutcome =
   | { kind: "missing" }
   | { kind: "conflict"; record: TrashedJournalRecord };
 
+export type JournalDeliveryClaim = {
+  attemptId: string;
+  journalDate: string;
+  records: JournalRecord[];
+};
+
+export type JournalDeliveryResult = {
+  journalDate: string;
+  recordCount: number;
+};
+
+export type JournalDeliveryDateStatus = {
+  journalDate: string;
+  pending: number;
+  processing: number;
+  failed: number;
+  lastError?: string;
+  nextAttemptAt?: string;
+};
+
+export type JournalDeliveryStatus = {
+  pendingRecordCount: number;
+  processingRecordCount: number;
+  failedRecordCount: number;
+  dates: JournalDeliveryDateStatus[];
+};
+
 const JOURNAL_COLLECTION_NAME = "journalRecords";
 const JOURNAL_DATE_NEWEST_FIRST_INDEX = {
   journalDate: 1,
@@ -79,6 +114,14 @@ const JOURNAL_DATE_NEWEST_FIRST_INDEX = {
   _id: 1,
 } as const;
 const JOURNAL_DATE_NEWEST_FIRST_INDEX_NAME = "journal_date_newest_first";
+const JOURNAL_DELIVERY_CLAIM_INDEX = {
+  deliveryState: 1,
+  editingState: 1,
+  journalDate: 1,
+  nextDeliveryAttemptAt: 1,
+  createdAt: 1,
+} as const;
+const JOURNAL_DELIVERY_CLAIM_INDEX_NAME = "journal_delivery_claim";
 
 export class JournalConflictRecordCollisionError extends Error {
   constructor() {
@@ -95,6 +138,9 @@ export async function initializeJournalCollection(
   const collection = getCollection(JOURNAL_COLLECTION_NAME);
   await collection.createIndex(JOURNAL_DATE_NEWEST_FIRST_INDEX, {
     name: JOURNAL_DATE_NEWEST_FIRST_INDEX_NAME,
+  });
+  await collection.createIndex(JOURNAL_DELIVERY_CLAIM_INDEX, {
+    name: JOURNAL_DELIVERY_CLAIM_INDEX_NAME,
   });
   return collection;
 }
@@ -243,7 +289,7 @@ export class JournalStore {
     if (current === null) return { kind: "notFound" };
 
     const currentRecord = toJournalRecord(current);
-    if (current.deliveryState === "delivered") {
+    if (current.deliveryState !== "undelivered") {
       return { kind: "locked", record: currentRecord };
     }
 
@@ -321,7 +367,7 @@ export class JournalStore {
     const current = await collection.findOne({ _id: id });
     if (current === null) return { kind: "missing" };
     if (current.deletedAt !== undefined) return { kind: "deleted" };
-    if (current.deliveryState === "delivered") {
+    if (current.deliveryState !== "undelivered") {
       return { kind: "locked", record: toJournalRecord(current) };
     }
     return { kind: "conflict", record: toJournalRecord(current) };
@@ -349,6 +395,183 @@ export class JournalStore {
     const current = await collection.findOne({ _id: id });
     if (current === null || current.deletedAt === undefined) return { kind: "missing" };
     return { kind: "conflict", record: toTrashedJournalRecord(current) };
+  }
+
+  async claimDelivery(now = this.now()): Promise<JournalDeliveryClaim | undefined> {
+    const collection = await this.getCollection();
+    const timestamp = now.toISOString();
+    const leaseExpiredAt = new Date(now.getTime() - JOURNAL_DELIVERY_LEASE_MS).toISOString();
+
+    await collection.updateMany(
+      { deliveryState: "processing", deliveryClaimedAt: { $lte: leaseExpiredAt } },
+      {
+        $set: {
+          deliveryState: "undelivered",
+          deliveryError: "The previous delivery lease expired before completion.",
+          nextDeliveryAttemptAt: timestamp,
+        },
+        $unset: { deliveryAttemptId: "", deliveryClaimedAt: "" },
+      },
+    );
+
+    const eligibleFilter: JournalFilter = {
+      deliveryState: "undelivered",
+      editingState: "idle",
+      deletedAt: { $exists: false },
+      journalDate: { $lt: taipeiDeliveryBoundary(now) },
+      $or: [
+        { nextDeliveryAttemptAt: { $exists: false } },
+        { nextDeliveryAttemptAt: { $lte: timestamp } },
+      ],
+    };
+    const candidates = await collection
+      .find(eligibleFilter)
+      .sort({ journalDate: 1, createdAt: 1, _id: 1 })
+      .limit(1)
+      .toArray();
+    const candidate = candidates[0];
+    if (candidate === undefined) return undefined;
+
+    const attemptId = randomUUID();
+    await collection.updateMany(
+      { ...eligibleFilter, journalDate: candidate.journalDate },
+      {
+        $set: {
+          deliveryState: "processing",
+          deliveryAttemptId: attemptId,
+          deliveryClaimedAt: timestamp,
+        },
+        $unset: { deliveryError: "", nextDeliveryAttemptAt: "" },
+        $inc: { deliveryAttempts: 1 },
+      },
+    );
+
+    const claimed = await collection
+      .find({ deliveryState: "processing", deliveryAttemptId: attemptId })
+      .sort({ createdAt: 1, _id: 1 })
+      .toArray();
+    if (claimed.length === 0) return undefined;
+
+    return {
+      attemptId,
+      journalDate: candidate.journalDate,
+      records: claimed.map(toJournalRecord),
+    };
+  }
+
+  async completeDelivery(
+    attemptId: string,
+    result: string,
+  ): Promise<JournalDeliveryResult | undefined> {
+    const collection = await this.getCollection();
+    const claimed = await collection
+      .find({ deliveryState: "processing", deliveryAttemptId: attemptId })
+      .sort({ createdAt: 1, _id: 1 })
+      .toArray();
+    if (claimed.length === 0) return undefined;
+
+    const deliveredAt = this.now().toISOString();
+    await collection.updateMany(
+      { deliveryState: "processing", deliveryAttemptId: attemptId },
+      {
+        $set: {
+          deliveryState: "delivered",
+          editingState: "idle",
+          deliveredAt,
+          deliveryResult: result,
+          updatedAt: deliveredAt,
+        },
+        $unset: {
+          deliveryAttemptId: "",
+          deliveryClaimedAt: "",
+          deliveryError: "",
+          nextDeliveryAttemptAt: "",
+        },
+      },
+    );
+
+    return { journalDate: claimed[0].journalDate, recordCount: claimed.length };
+  }
+
+  async failDelivery(
+    attemptId: string,
+    error: string,
+  ): Promise<JournalDeliveryResult | undefined> {
+    const collection = await this.getCollection();
+    const claimed = await collection
+      .find({ deliveryState: "processing", deliveryAttemptId: attemptId })
+      .sort({ createdAt: 1, _id: 1 })
+      .toArray();
+    if (claimed.length === 0) return undefined;
+
+    const now = this.now();
+    await collection.updateMany(
+      { deliveryState: "processing", deliveryAttemptId: attemptId },
+      {
+        $set: {
+          deliveryState: "undelivered",
+          deliveryError: error.slice(0, 2_000),
+          nextDeliveryAttemptAt: new Date(now.getTime() + JOURNAL_DELIVERY_RETRY_MS).toISOString(),
+          updatedAt: now.toISOString(),
+        },
+        $unset: { deliveryAttemptId: "", deliveryClaimedAt: "" },
+      },
+    );
+
+    return { journalDate: claimed[0].journalDate, recordCount: claimed.length };
+  }
+
+  async getDeliveryStatus(): Promise<JournalDeliveryStatus> {
+    const collection = await this.getCollection();
+    const records = await collection
+      .find({
+        deliveryState: { $in: ["undelivered", "processing"] },
+        editingState: "idle",
+        deletedAt: { $exists: false },
+      })
+      .sort({ journalDate: 1, createdAt: 1, _id: 1 })
+      .toArray();
+    const byDate = new Map<string, JournalDeliveryDateStatus>();
+
+    for (const record of records) {
+      const date = byDate.get(record.journalDate) ?? {
+        journalDate: record.journalDate,
+        pending: 0,
+        processing: 0,
+        failed: 0,
+      };
+      if (record.deliveryState === "processing") date.processing += 1;
+      else date.pending += 1;
+      if (record.deliveryError !== undefined) {
+        date.failed += 1;
+        date.lastError = record.deliveryError;
+        if (record.nextDeliveryAttemptAt !== undefined) {
+          date.nextAttemptAt = record.nextDeliveryAttemptAt;
+        }
+      }
+      byDate.set(record.journalDate, date);
+    }
+
+    const dates = [...byDate.values()];
+    return {
+      pendingRecordCount: dates.reduce((sum, date) => sum + date.pending, 0),
+      processingRecordCount: dates.reduce((sum, date) => sum + date.processing, 0),
+      failedRecordCount: dates.reduce((sum, date) => sum + date.failed, 0),
+      dates,
+    };
+  }
+
+  async retryFailedDeliveries(): Promise<number> {
+    const collection = await this.getCollection();
+    const result = await collection.updateMany(
+      {
+        deliveryState: "undelivered",
+        deliveryError: { $exists: true },
+        deletedAt: { $exists: false },
+      },
+      { $set: { nextDeliveryAttemptAt: this.now().toISOString() } },
+    );
+    return result.modifiedCount ?? 0;
   }
 }
 

@@ -9,6 +9,44 @@ struct ClaimResponse {
 }
 
 #[derive(Deserialize)]
+struct JournalDeliveryClaimResponse {
+    delivery: Option<JournalDelivery>,
+}
+
+#[derive(Deserialize)]
+struct JournalDeliveryStatusResponse {
+    delivery: JournalDeliveryStatus,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct JournalDeliveryStatus {
+    pub(crate) pending_record_count: usize,
+    pub(crate) processing_record_count: usize,
+    pub(crate) failed_record_count: usize,
+    pub(crate) dates: Vec<JournalDeliveryDateStatus>,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct JournalDeliveryDateStatus {
+    pub(crate) journal_date: String,
+    pub(crate) pending: usize,
+    pub(crate) processing: usize,
+    pub(crate) failed: usize,
+    pub(crate) last_error: Option<String>,
+    pub(crate) next_attempt_at: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct JournalDelivery {
+    attempt_id: String,
+    journal_date: String,
+    records: Vec<processor::JournalRecordForDelivery>,
+}
+
+#[derive(Deserialize)]
 struct Job {
     id: String,
     content: String,
@@ -17,6 +55,15 @@ struct Job {
 #[derive(Serialize)]
 struct CompleteRequest {
     result: String,
+}
+
+#[derive(Serialize)]
+struct JournalDeliveryReportRequest<'a> {
+    outcome: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -45,6 +92,76 @@ pub(crate) struct WorkerReport {
 
 pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport, String> {
     let client = Client::new();
+    let journal_response = client
+        .post(config.endpoint("api/journal-deliveries/claim"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the Journal delivery API: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Journal delivery claim failed: {error}"))?
+        .json::<JournalDeliveryClaimResponse>()
+        .await
+        .map_err(|error| format!("Journal delivery claim response was invalid: {error}"))?;
+
+    if let Some(delivery) = journal_response.delivery {
+        let attempt_id = delivery.attempt_id.clone();
+        let journal_date = delivery.journal_date.clone();
+        let record_count = delivery.records.len();
+        let process_date = journal_date.clone();
+        let process_result = tauri::async_runtime::spawn_blocking(move || {
+            processor::process_journal_delivery(&process_date, &delivery.records)
+        })
+        .await
+        .map_err(|error| format!("The Journal processor stopped unexpectedly: {error}"))?;
+
+        match process_result {
+            Ok(result) => {
+                report_journal_delivery(
+                    &client,
+                    config,
+                    &attempt_id,
+                    JournalDeliveryReportRequest {
+                        outcome: "completed",
+                        result: Some(&result),
+                        error: None,
+                    },
+                )
+                .await?;
+
+                return Ok(WorkerReport {
+                    outcome: "processed",
+                    message: format!(
+                        "Appended {record_count} Journal record(s) to Heptabase {journal_date}."
+                    ),
+                    job_id: Some(attempt_id),
+                });
+            }
+            Err(error) => {
+                let report_result = report_journal_delivery(
+                    &client,
+                    config,
+                    &attempt_id,
+                    JournalDeliveryReportRequest {
+                        outcome: "failed",
+                        result: None,
+                        error: Some(&error),
+                    },
+                )
+                .await;
+
+                return match report_result {
+                    Ok(()) => Err(format!(
+                        "Journal delivery for {journal_date} failed and will retry: {error}"
+                    )),
+                    Err(report_error) => Err(format!(
+                        "Journal delivery for {journal_date} failed: {error}. The failure could not be reported: {report_error}"
+                    )),
+                };
+            }
+        }
+    }
+
     let response = client
         .post(config.endpoint("api/jobs/claim"))
         .bearer_auth(&config.device_token)
@@ -85,6 +202,54 @@ pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport
         message: format!("Saved capture to Heptabase: {}", job.content),
         job_id: Some(job.id),
     })
+}
+
+async fn report_journal_delivery(
+    client: &Client,
+    config: &WorkerConfig,
+    attempt_id: &str,
+    report: JournalDeliveryReportRequest<'_>,
+) -> Result<(), String> {
+    client
+        .patch(config.endpoint(&format!("api/journal-deliveries/{attempt_id}")))
+        .bearer_auth(&config.device_token)
+        .json(&report)
+        .send()
+        .await
+        .map_err(|error| format!("Could not report the Journal delivery: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Journal delivery report failed: {error}"))?;
+
+    Ok(())
+}
+
+pub(crate) async fn get_journal_delivery_status(
+    config: &WorkerConfig,
+) -> Result<JournalDeliveryStatus, String> {
+    Client::new()
+        .get(config.endpoint("api/journal-deliveries"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the Journal delivery API: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Journal delivery status failed: {error}"))?
+        .json::<JournalDeliveryStatusResponse>()
+        .await
+        .map(|response| response.delivery)
+        .map_err(|error| format!("Journal delivery status response was invalid: {error}"))
+}
+
+pub(crate) async fn retry_failed_journal_deliveries(config: &WorkerConfig) -> Result<(), String> {
+    Client::new()
+        .post(config.endpoint("api/journal-deliveries"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the Journal delivery API: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Journal delivery retry request failed: {error}"))?;
+    Ok(())
 }
 
 pub(crate) async fn create_capture(

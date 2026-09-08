@@ -106,7 +106,9 @@ function isJournalRecord(value: unknown): value is JournalRecord {
   if (!creation.success || !isPlainObject(value)) return false;
 
   return (
-    (value.deliveryState === "undelivered" || value.deliveryState === "delivered") &&
+    (value.deliveryState === "undelivered" ||
+      value.deliveryState === "processing" ||
+      value.deliveryState === "delivered") &&
     (value.editingState === "active" || value.editingState === "idle") &&
     typeof value.revision === "number" &&
     Number.isSafeInteger(value.revision) &&

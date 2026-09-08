@@ -11,7 +11,7 @@ export const JOURNAL_AREA_KEYS = [
 
 export type JournalAreaKey = (typeof JOURNAL_AREA_KEYS)[number];
 export type JournalAreas = Record<JournalAreaKey, string>;
-export type DeliveryState = "undelivered" | "delivered";
+export type DeliveryState = "undelivered" | "processing" | "delivered";
 export type EditingState = "active" | "idle";
 
 export type JournalRecord = {
@@ -25,6 +25,13 @@ export type JournalRecord = {
   createdAt: string;
   updatedAt: string;
   conflictOf?: string;
+  deliveryAttemptId?: string;
+  deliveryClaimedAt?: string;
+  deliveryAttempts?: number;
+  deliveryError?: string;
+  nextDeliveryAttemptAt?: string;
+  deliveredAt?: string;
+  deliveryResult?: string;
 };
 
 export type TrashedJournalRecord = JournalRecord & {

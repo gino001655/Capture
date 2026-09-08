@@ -322,6 +322,20 @@ async fn create_capture(app: AppHandle, content: String) -> Result<CreatedCaptur
 }
 
 #[tauri::command]
+async fn get_journal_delivery_status(
+    app: AppHandle,
+) -> Result<worker::JournalDeliveryStatus, String> {
+    let config = WorkerConfig::load(&app)?;
+    worker::get_journal_delivery_status(&config).await
+}
+
+#[tauri::command]
+async fn retry_failed_journal_deliveries(app: AppHandle) -> Result<(), String> {
+    let config = WorkerConfig::load(&app)?;
+    worker::retry_failed_journal_deliveries(&config).await
+}
+
+#[tauri::command]
 fn get_connection_settings(app: AppHandle) -> ConnectionSettingsSummary {
     WorkerConfig::summary(&app)
 }
@@ -443,6 +457,8 @@ pub fn run() {
             get_worker_status,
             set_pause,
             create_capture,
+            get_journal_delivery_status,
+            retry_failed_journal_deliveries,
             get_connection_settings,
             save_connection_settings,
             hide_current_window,

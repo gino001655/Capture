@@ -92,6 +92,26 @@ function createHarness() {
 
       return { matchedCount: 0, modifiedCount: 0, upsertedCount: 0 };
     },
+    async updateMany(filter, update) {
+      let modifiedCount = 0;
+      for (const [id, existing] of documents) {
+        if (!matches(existing, filter)) continue;
+        const next = structuredClone(existing);
+        if (update.$set !== undefined) Object.assign(next, update.$set);
+        if (update.$unset !== undefined) {
+          for (const key of Object.keys(update.$unset)) {
+            delete (next as unknown as Record<string, unknown>)[key];
+          }
+        }
+        if (update.$inc?.revision !== undefined) next.revision += update.$inc.revision;
+        if (update.$inc?.deliveryAttempts !== undefined) {
+          next.deliveryAttempts = (next.deliveryAttempts ?? 0) + update.$inc.deliveryAttempts;
+        }
+        documents.set(id, next);
+        modifiedCount += 1;
+      }
+      return { modifiedCount };
+    },
     async findOne(filter) {
       return structuredClone(findMatchingDocument(documents, filter) ?? null);
     },
@@ -110,17 +130,16 @@ function createHarness() {
     find(filter) {
       return {
         sort(sort) {
+          const sorted = () => [...documents.values()]
+            .filter((document) => matches(document, filter))
+            .sort((left, right) => compareDocuments(left, right, sort))
+            .map((document) => structuredClone(document));
           return {
+            limit(limit) {
+              return { async toArray() { return sorted().slice(0, limit); } };
+            },
             async toArray() {
-              return [...documents.values()]
-                .filter((document) => matches(document, filter))
-                .sort((left, right) => {
-                  const sortKey = "deletedAt" in sort ? "deletedAt" : "createdAt";
-                  const comparison = (right[sortKey] ?? "").localeCompare(left[sortKey] ?? "");
-                  if (comparison !== 0) return comparison;
-                  return left._id.localeCompare(right._id);
-                })
-                .map((document) => structuredClone(document));
+              return sorted();
             },
           };
         },
@@ -154,11 +173,37 @@ function matches(
   filter: Record<string, unknown>,
 ): boolean {
   return Object.entries(filter).every(([key, value]) => {
+    if (key === "$or") {
+      return (value as Record<string, unknown>[]).some((entry) => matches(document, entry));
+    }
     if (typeof value === "object" && value !== null && "$exists" in value) {
       return Object.hasOwn(document, key) === (value as { $exists: boolean }).$exists;
     }
+    if (typeof value === "object" && value !== null && "$lt" in value) {
+      return String(document[key as keyof JournalDocument]) < String((value as { $lt: unknown }).$lt);
+    }
+    if (typeof value === "object" && value !== null && "$lte" in value) {
+      return String(document[key as keyof JournalDocument]) <= String((value as { $lte: unknown }).$lte);
+    }
+    if (typeof value === "object" && value !== null && "$in" in value) {
+      return (value as { $in: unknown[] }).$in.includes(document[key as keyof JournalDocument]);
+    }
     return document[key as keyof JournalDocument] === value;
   });
+}
+
+function compareDocuments(
+  left: JournalDocument,
+  right: JournalDocument,
+  sort: Record<string, 1 | -1>,
+): number {
+  for (const [key, direction] of Object.entries(sort)) {
+    const leftValue = String(left[key as keyof JournalDocument] ?? "");
+    const rightValue = String(right[key as keyof JournalDocument] ?? "");
+    const comparison = leftValue.localeCompare(rightValue);
+    if (comparison !== 0) return comparison * direction;
+  }
+  return 0;
 }
 
 test("lists one date newest-first without moving edited records", async () => {
@@ -300,6 +345,16 @@ test("initializes the journalRecords collection with its newest-first index", as
       keys: { journalDate: 1, createdAt: -1, _id: 1 },
       options: { name: "journal_date_newest_first" },
     },
+    {
+      keys: {
+        deliveryState: 1,
+        editingState: 1,
+        journalDate: 1,
+        nextDeliveryAttemptAt: 1,
+        createdAt: 1,
+      },
+      options: { name: "journal_delivery_claim" },
+    },
   ]);
 });
 
@@ -407,4 +462,79 @@ test("a stale DELETE returns the newer undelivered record without removing it", 
   );
   assert.equal(documents.get(original.id)?.revision, 1);
   assert.equal(documents.get(original.id)?.areas.event, "newer server text");
+});
+
+test("claims one eligible date oldest-first and delivers the claimed records together", async () => {
+  const { store, clock, documents } = createHarness();
+  const older = await store.create(createInput(IDS.older));
+  await store.update(older.id, updateInput({ expectedRevision: 0 }));
+  clock.advance(1_000);
+  const newer = await store.create(createInput(IDS.newer));
+  await store.update(newer.id, updateInput({
+    expectedRevision: 0,
+    conflictRecordId: "55555555-5555-4555-8555-555555555555",
+  }));
+  clock.advance(24 * 60 * 60 * 1_000);
+
+  const claim = await store.claimDelivery(clock.now());
+
+  assert.ok(claim);
+  assert.equal(claim.journalDate, "2026-08-18");
+  assert.deepEqual(claim.records.map(({ id }) => id), [older.id, newer.id]);
+  assert.equal(documents.get(older.id)?.deliveryState, "processing");
+
+  const completed = await store.completeDelivery(claim.attemptId, "contentMd5:next");
+  assert.deepEqual(completed, { journalDate: "2026-08-18", recordCount: 2 });
+  assert.equal(documents.get(older.id)?.deliveryState, "delivered");
+  assert.equal(documents.get(newer.id)?.deliveryState, "delivered");
+  assert.equal(documents.get(older.id)?.deliveryAttemptId, undefined);
+});
+
+test("returns a failed delivery to the queue with a fifteen-minute retry time", async () => {
+  const { store, clock, documents } = createHarness();
+  const record = await store.create(createInput(IDS.older));
+  await store.update(record.id, updateInput({ expectedRevision: 0 }));
+  clock.advance(24 * 60 * 60 * 1_000);
+  const claim = await store.claimDelivery(clock.now());
+  assert.ok(claim);
+
+  const failedAt = clock.now();
+  const failed = await store.failDelivery(claim.attemptId, "Heptabase is offline");
+
+  assert.deepEqual(failed, { journalDate: "2026-08-18", recordCount: 1 });
+  assert.equal(documents.get(record.id)?.deliveryState, "undelivered");
+  assert.equal(documents.get(record.id)?.deliveryError, "Heptabase is offline");
+  assert.equal(
+    documents.get(record.id)?.nextDeliveryAttemptAt,
+    new Date(failedAt.getTime() + 15 * 60 * 1_000).toISOString(),
+  );
+  assert.equal(await store.claimDelivery(clock.now()), undefined);
+  clock.advance(15 * 60 * 1_000);
+  assert.ok(await store.claimDelivery(clock.now()));
+});
+
+test("summarizes pending and failed dates and makes failures immediately retryable", async () => {
+  const { store, clock } = createHarness();
+  const record = await store.create(createInput(IDS.older));
+  await store.update(record.id, updateInput({ expectedRevision: 0 }));
+  clock.advance(24 * 60 * 60 * 1_000);
+  const claim = await store.claimDelivery(clock.now());
+  assert.ok(claim);
+  await store.failDelivery(claim.attemptId, "Heptabase conflict");
+
+  assert.deepEqual(await store.getDeliveryStatus(), {
+    pendingRecordCount: 1,
+    processingRecordCount: 0,
+    failedRecordCount: 1,
+    dates: [{
+      journalDate: "2026-08-18",
+      pending: 1,
+      processing: 0,
+      failed: 1,
+      lastError: "Heptabase conflict",
+      nextAttemptAt: "2026-08-19T00:15:00.000Z",
+    }],
+  });
+  assert.equal(await store.retryFailedDeliveries(), 1);
+  assert.ok(await store.claimDelivery(clock.now()));
 });

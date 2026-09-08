@@ -117,7 +117,41 @@ Success criteria:
 
 ## Later milestones
 
-- Add minimal Anki integration.
+## 9. Journal product slice
+
+Status: Implemented in source; production smoke test pending.
+
+- Cloud claims undelivered idle records by Taipei Journal date after the 04:00 boundary.
+- Desktop appends deterministic Markdown to that date's Heptabase Journal with MD5 conflict protection.
+- Success locks delivered records; failure persists an error and retries after 15 minutes.
+- Worker Status exposes pending, processing, and failed dates with an immediate manual retry.
+
+Remaining limitation: Heptabase does not expose an idempotency key. A crash in the narrow interval after a successful append but before the Cloud acknowledgement can still require manual duplicate inspection.
+
+## 10. Open-source extension boundary
+
+Status: Next.
+
+- Give Web and Desktop one declarative recorder registry.
+- Document the minimum files needed to add a recorder.
+- Put AI and destination selection behind explicit provider interfaces and configuration, without committing credentials.
+- Supply examples and development setup suitable for a GitHub user modifying a personal fork.
+
+## 11. English to Anki
+
+Status: Planned. The daily English source document and history are implemented.
+
+## 12. Workout and running recorder
+
+Status: Designed; not implemented.
+
+## 13. Food recorder
+
+Status: Designed; not implemented.
+
+## Later reliability and product work
+
 - Add offline capture only if real mobile usage demonstrates that it is needed.
-- Add a failed-job state, retry, idempotency, crash recovery, logging, and observability before relying on unattended processing.
-- Improve intelligent routing and visual polish after the pipeline is reliable.
+- Add explicit English conflict resolution and improve legacy capture retry/idempotency.
+- Resolve the Heptabase append acknowledgement crash window if its API gains a stable idempotency mechanism.
+- Add AI organization only after the deterministic delivery path is production-verified.

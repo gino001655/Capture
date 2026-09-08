@@ -46,7 +46,9 @@ function isJournalRecord(value: unknown): value is JournalRecord {
   }
 
   return (
-    (value.deliveryState === "undelivered" || value.deliveryState === "delivered") &&
+    (value.deliveryState === "undelivered" ||
+      value.deliveryState === "processing" ||
+      value.deliveryState === "delivered") &&
     (value.editingState === "active" || value.editingState === "idle") &&
     typeof value.revision === "number" &&
     Number.isSafeInteger(value.revision) &&
@@ -184,7 +186,7 @@ export function reconcileJournalRecordList(
   const matchingServer = serverRecords.find((record) => record.id === active.id);
   const serverWins =
     matchingServer !== undefined &&
-    (matchingServer.deliveryState === "delivered" ||
+    (matchingServer.deliveryState !== "undelivered" ||
       (active.revision !== null && matchingServer.revision > active.revision));
   const activeEntry = serverWins
     ? serverEntry(matchingServer)

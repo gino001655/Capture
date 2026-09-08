@@ -2,7 +2,7 @@
 
 ## Status
 
-The Web/API is deployed to Vercel and verified with Google authentication, MongoDB Atlas persistence, and the local Desktop worker. The worker-to-Codex-to-Heptabase path is connected and verified against production. Its first version has no durable retry or failed-job state. The English special-recorder slice now exists in source but has not yet been deployed or manually verified across devices.
+The Web/API and English recorder are deployed to Vercel. Google authentication, MongoDB Atlas persistence, and the legacy capture-to-Codex-to-Heptabase note path have been production-verified. The Journal daily-delivery path is implemented and automatically verified in source, but still requires a real production delivery smoke test before it is considered production-verified.
 
 ## System context
 
@@ -41,6 +41,10 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - `GET /api/captures/{id}` to read its current state;
 - `POST /api/jobs/claim` to atomically move one pending job to processing;
 - `PATCH /api/jobs/{id}` to record a completed result.
+- `GET /api/journal-deliveries` to report pending, processing, and failed Journal work;
+- `POST /api/journal-deliveries/claim` to lease the oldest eligible Journal date to the Desktop worker;
+- `PATCH /api/journal-deliveries/{attemptId}` to complete or fail one leased batch;
+- `POST /api/journal-deliveries` to make failed batches immediately retryable;
 - `GET /api/special-records/english?date=YYYY-MM-DD` to read one daily English document;
 - `PUT /api/special-records/english` to create, revise, or remove an empty daily English document with optimistic revision checking.
 
@@ -53,6 +57,8 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Remain accessible only from trusted server-side code.
 - Never expose its connection credentials to the browser or Desktop application.
 - Persist versioned special-recorder payloads in `specialRecords`. The first payload is `english`, uniquely addressed by module and Taipei Journal date; future modules reuse lifecycle fields without sharing their domain payloads.
+- Persist Journal delivery state on the source `journalRecords`. One claim leases every eligible idle record for the oldest pending date, preserving oldest-first delivery order without duplicating the raw source data in a second queue.
+- Release abandoned 30-minute Journal leases, delay ordinary failures for 15 minutes, and retain the last error for operator visibility.
 
 ### Desktop application
 
@@ -64,6 +70,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Open Quick Capture with `Ctrl + Alt + C` and toggle Worker Status with `Ctrl + Alt + W`.
 - Optionally register the installed app to start hidden with Windows.
 - Discover special Capture pages from `capture-pages/*.page.tsx`. The English page keeps an immediate local pending cache and reaches the Cloud through narrow Tauri commands that reuse the saved Desktop bearer-token configuration.
+- Show the authoritative Journal delivery queue in Worker Status and make `Check now` retry failures immediately.
 
 ## English synchronization boundary
 
@@ -71,7 +78,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Cloud writes carry an expected revision so a stale device cannot silently overwrite newer text. The first UI preserves a conflicting local pending copy and reports an unsynchronized state; an explicit conflict-resolution interface is still required.
 - The UI permits editing only the current Taipei date. A delayed offline write for an earlier date is accepted only when its recorded client edit timestamp belongs to that same date; this preserves pre-midnight offline text without opening normal past-date editing.
 - Past documents are read-only in both clients. Empty text deletes the current empty daily document, so blank days do not remain in `specialRecords`.
-- The current slice does not yet include the content-date history list, service-worker background synchronization, Worker downstream processing, AI/Anki transformation, or production deployment verification.
+- The current slice includes the content-date history list. It does not yet include service-worker background synchronization, AI/Anki transformation, explicit conflict resolution, or cross-device manual verification.
 
 ### Processor
 
@@ -82,6 +89,9 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Return the created Heptabase card ID and title as the Cloud processing result.
 - Not own persistence, retry policy, or authoritative job state.
 - Currently leave a claimed job in `processing` if Codex or Heptabase fails; retry and explicit failure states are later reliability work.
+- For Journal batches, deterministically convert the six Capture areas to the approved Markdown bullets and dividers without AI rewriting.
+- Read the target Heptabase Journal, then append with its `contentMd5` as a conflict precondition. Cloud records are marked delivered and locked only after the append succeeds.
+- A failed Journal append is reported to Cloud and becomes retryable after 15 minutes or immediately through `Check now`.
 
 ## Desktop polling behavior
 
@@ -92,7 +102,7 @@ The worker checks for work:
 3. every five minutes while running and online;
 4. when the user selects a manual check action.
 
-All triggers share one check operation and avoid overlapping polls. The application runs the five-minute schedule in Rust so hiding the WebView window does not stop the worker. Queue draining, durable retries, and explicit sleep-resume handling remain future reliability work.
+All triggers share one check operation and avoid overlapping polls. The application runs the five-minute schedule in Rust so hiding the WebView window does not stop the worker. Each check handles one Journal date before falling back to one legacy capture. Journal failures have durable retry state; legacy capture failures, full queue draining, and explicit sleep-resume handling remain future reliability work.
 
 ## Trust boundaries
 

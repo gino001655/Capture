@@ -246,7 +246,7 @@ export function JournalApp({
   }
 
   function requestAbandon() {
-    if (!selectedRecord || selectedRecord.deliveryState === "delivered") returnToList();
+    if (!selectedRecord || selectedRecord.deliveryState !== "undelivered") returnToList();
     else if (!hasEditChanges) returnToList();
     else setConfirmAction("abandon");
   }
@@ -260,7 +260,7 @@ export function JournalApp({
   }
 
   function trashRecordFromList(record: JournalListEntry) {
-    if (record.deliveryState === "delivered") return;
+    if (record.deliveryState !== "undelivered") return;
     if (
       record.serverRecord !== null &&
       !controllerRef.current?.openRecord(record.serverRecord)

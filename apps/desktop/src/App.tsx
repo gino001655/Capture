@@ -37,6 +37,20 @@ type TrashedJournalRecord = {
   deletedAt: string;
 };
 
+type JournalDeliveryStatus = {
+  pendingRecordCount: number;
+  processingRecordCount: number;
+  failedRecordCount: number;
+  dates: Array<{
+    journalDate: string;
+    pending: number;
+    processing: number;
+    failed: number;
+    lastError?: string;
+    nextAttemptAt?: string;
+  }>;
+};
+
 function formatLastChecked(timestamp: number | null) {
   return timestamp === null
     ? "Not yet"
@@ -65,6 +79,7 @@ function WorkerView() {
   const [captureTheme, setCaptureTheme] = useState<CaptureTheme>(readCaptureTheme);
   const [trashRecords, setTrashRecords] = useState<TrashedJournalRecord[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
+  const [deliveryStatus, setDeliveryStatus] = useState<JournalDeliveryStatus | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -74,8 +89,17 @@ function WorkerView() {
     }
   }, []);
 
+  const refreshDeliveryStatus = useCallback(async () => {
+    try {
+      setDeliveryStatus(await invoke<JournalDeliveryStatus>("get_journal_delivery_status"));
+    } catch {
+      setDeliveryStatus(null);
+    }
+  }, []);
+
   useEffect(() => {
     void refreshStatus();
+    void refreshDeliveryStatus();
     void invoke<boolean>("get_start_with_windows")
       .then(setStartWithWindows)
       .catch((error) => {
@@ -91,6 +115,9 @@ function WorkerView() {
     const intervalId = window.setInterval(() => {
       void refreshStatus();
     }, 1_000);
+    const deliveryIntervalId = window.setInterval(() => {
+      void refreshDeliveryStatus();
+    }, 15_000);
 
     const checkAfterReconnect = () => {
       void invoke<WorkerSnapshot>("check_for_work").then(setSnapshot);
@@ -100,13 +127,20 @@ function WorkerView() {
 
     return () => {
       window.clearInterval(intervalId);
+      window.clearInterval(deliveryIntervalId);
       window.removeEventListener("online", checkAfterReconnect);
     };
-  }, [refreshStatus]);
+  }, [refreshDeliveryStatus, refreshStatus]);
 
   async function checkNow() {
     setSettingError(null);
-    setSnapshot(await invoke<WorkerSnapshot>("check_for_work"));
+    try {
+      await invoke("retry_failed_journal_deliveries");
+      setSnapshot(await invoke<WorkerSnapshot>("check_for_work"));
+      await refreshDeliveryStatus();
+    } catch (error) {
+      setSettingError(typeof error === "string" ? error : "Could not check pending work.");
+    }
   }
 
   async function togglePause() {
@@ -147,6 +181,7 @@ function WorkerView() {
       setApiBaseUrl(settings.apiBaseUrl);
       setDeviceToken("");
       setSnapshot(await invoke<WorkerSnapshot>("check_for_work"));
+      await refreshDeliveryStatus();
     } catch (error) {
       setSettingError(
         typeof error === "string" ? error : "Could not save connection settings.",
@@ -215,6 +250,34 @@ function WorkerView() {
           {snapshot.paused ? "Resume worker" : "Pause worker"}
         </button>
       </div>
+
+      {deliveryStatus ? (
+        <section className="deliveryQueue" aria-label="Journal delivery queue">
+          <div>
+            <strong>{deliveryStatus.pendingRecordCount}</strong>
+            <span>Pending</span>
+          </div>
+          <div>
+            <strong>{deliveryStatus.processingRecordCount}</strong>
+            <span>Processing</span>
+          </div>
+          <div className={deliveryStatus.failedRecordCount > 0 ? "hasFailure" : undefined}>
+            <strong>{deliveryStatus.failedRecordCount}</strong>
+            <span>Failed</span>
+          </div>
+          {deliveryStatus.dates.length > 0 ? (
+            <ul>
+              {deliveryStatus.dates.map((date) => (
+                <li key={date.journalDate} title={date.lastError}>
+                  <time>{date.journalDate}</time>
+                  <span>{date.processing > 0 ? `${date.processing} processing` : `${date.pending} pending`}</span>
+                  {date.failed > 0 ? <em>{date.failed} failed</em> : null}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </section>
+      ) : null}
 
       <label className="settingToggle">
         <input
