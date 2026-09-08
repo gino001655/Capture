@@ -1,5 +1,5 @@
 import { getMongoClient, getMongoDatabaseName } from "./mongodb.ts";
-import type { FoodRecord, FoodSaveInput } from "./food-record.ts";
+import { hasCustomFoodTargets, type FoodRecord, type FoodSaveInput } from "./food-record.ts";
 
 export type FoodDocument = Omit<FoodRecord, "id"> & { _id: string };
 type Filter = Partial<FoodDocument>;
@@ -23,7 +23,7 @@ export class FoodStore {
   async list() { return (await (await this.getCollection()).find({ moduleId: "food" }).sort({ journalDate: -1, _id: 1 }).toArray()).map(record); }
   async save(input: FoodSaveInput): Promise<Outcome> {
     const target = await this.getCollection(); const id = `food:${input.journalDate}`; const current = await target.findOne({ _id: id, moduleId: "food" });
-    if (!input.payload.entries.length) {
+    if (!input.payload.entries.length && !hasCustomFoodTargets(input.payload)) {
       if (!current) return { kind: "deleted", record: null };
       if (input.expectedRevision !== current.revision) return { kind: "conflict", record: record(current) };
       const deleted = await target.findOneAndDelete({ _id: id, moduleId: "food", revision: current.revision });

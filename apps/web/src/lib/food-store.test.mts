@@ -23,3 +23,16 @@ test("food daily record creates, revision-updates, and clears", async () => {
   assert.equal((await store.save({ ...input, expectedRevision: 0, payload: { ...input.payload, entries: [{ ...entry, calories: 150 }] } })).kind, "updated");
   assert.equal((await store.save({ ...input, expectedRevision: 1, payload: emptyFoodPayload() })).kind, "deleted");
 });
+
+test("a customized nutrition target persists without food rows", async () => {
+  const store = harness();
+  const input: FoodSaveInput = {
+    journalDate: "2026-09-08",
+    payload: { ...emptyFoodPayload(), calorieTarget: 2300 },
+    expectedRevision: null,
+    clientUpdatedAt: "2026-09-08T02:00:00Z",
+  };
+
+  assert.equal((await store.save(input)).kind, "created");
+  assert.equal((await store.get("2026-09-08"))?.payload.calorieTarget, 2300);
+});

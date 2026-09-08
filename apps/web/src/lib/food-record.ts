@@ -38,6 +38,16 @@ function object(value: unknown): value is Record<string, unknown> { return typeo
 
 export function emptyFoodPayload(): FoodPayload { return { schemaVersion: 1, calorieTarget: 2000, proteinTargetGrams: 120, entries: [] }; }
 
+export function isFoodPayloadReady(payload: FoodPayload): boolean {
+  return payload.entries.every((entry) => entry.name.trim().length > 0);
+}
+
+export function hasCustomFoodTargets(payload: FoodPayload): boolean {
+  const defaults = emptyFoodPayload();
+  return payload.calorieTarget !== defaults.calorieTarget
+    || payload.proteinTargetGrams !== defaults.proteinTargetGrams;
+}
+
 export function validateFoodSaveRequest(input: unknown): { success: true; value: FoodSaveInput } | { success: false; message: string } {
   if (!object(input) || !validateJournalDate(input.journalDate) || !object(input.payload) || input.payload.schemaVersion !== 1 || !Array.isArray(input.payload.entries) || input.payload.entries.length > 300) return { success: false, message: "Food request must contain a valid date and schemaVersion 1 payload." };
   if (!optionalNumber(input.payload.calorieTarget, 100_000) || !optionalNumber(input.payload.proteinTargetGrams, 10_000)) return { success: false, message: "Food targets must be non-negative numbers or null." };

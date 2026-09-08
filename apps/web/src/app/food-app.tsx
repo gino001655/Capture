@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FoodEntry, FoodPayload, FoodRecord } from "../lib/food-record";
-import { emptyFoodPayload } from "../lib/food-record";
+import { emptyFoodPayload, isFoodPayloadReady } from "../lib/food-record";
 import { toTaipeiDate } from "../lib/special-record";
 import { shiftJournalDate } from "./journal-session";
 import { ModuleRail, type CaptureModule } from "./module-rail";
@@ -32,7 +32,7 @@ export function FoodApp({ active, onSelectModule }: { active: boolean; onSelectM
   const editable = date === today || date === shiftJournalDate(today, -1);
   const publish = useCallback((targetDate: string, next: LocalFood) => { localRef.current = next; if (targetDate === dateRef.current) setLocal(next); const values = cache(); values[targetDate] = next; persist(values); }, []);
   const sync = useCallback(async (targetDate: string, candidate = localRef.current) => {
-    if (!candidate.pending || candidate.conflict) return;
+    if (!candidate.pending || candidate.conflict || !isFoodPayloadReady(candidate.payload)) return;
     try {
       const response = await fetch("/api/special-records/food", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ journalDate: targetDate, payload: candidate.payload, expectedRevision: candidate.revision, clientUpdatedAt: candidate.clientUpdatedAt }) });
       const result = await response.json(); if (!response.ok) { if (result?.error?.code === "REVISION_CONFLICT") { const current = cache()[targetDate] ?? candidate; publish(targetDate, { ...current, conflict: { cloud: result.record ?? null } }); } setIssue(true); return; }
