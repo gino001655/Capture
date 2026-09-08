@@ -10,7 +10,7 @@ The authenticated Web/API is deployed to Vercel and verified with MongoDB Atlas 
 
 The legacy text-to-note pipeline is connected and production-verified. The newer Journal pipeline batches idle records by Taipei date after the 04:00 boundary, appends deterministic Markdown to the corresponding Heptabase Journal, locks successful records, and keeps failed work in a visible retry queue. That newer path is implemented and automatically verified but still needs one production smoke test.
 
-English is the first synchronized special recorder. Web and Desktop share one daily document and history contract. Cross-device manual verification and its Anki processor remain pending.
+English, Workout/Running, and Food are synchronized special recorders shared by Web and Desktop. Workout includes copied prior sets, a rest timer, history metrics, running segments, and a synced exercise library. Food includes daily calorie/protein totals and a synced reusable-food library. Cross-device manual verification and the English-to-Anki processor remain pending.
 
 ## Local development
 
@@ -70,14 +70,14 @@ pnpm.cmd build      # Web production build (stop next dev first)
 
 This Windows setup uses the `.cmd` entry because the current PowerShell execution policy blocks the generated `pnpm.ps1` shim. On shells without that restriction, the equivalent command is simply `pnpm`.
 
-## Planned system
+## Current system
 
-- A mobile-oriented Next.js Web application for capture and status viewing.
+- A mobile-oriented Next.js Web application for Journal, English, Workout/Running, and Food capture.
 - A Cloud API hosted with the Web application on Vercel.
-- MongoDB Atlas for persistent cloud data.
-- A Tauri Windows application containing the Desktop worker.
-- A local Codex processor invoked by the Windows Desktop worker.
-- Heptabase as the first connected destination; Anki remains later work.
+- MongoDB Atlas for persistent cloud data and revision-safe cross-device synchronization.
+- A Tauri Windows application containing Quick Capture, special recorders, and the Desktop worker.
+- A configurable local Codex/none processor invoked by the Windows Desktop worker.
+- Heptabase as the first destination adapter; Anki remains later work.
 
 The first end-to-end target is:
 

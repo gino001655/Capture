@@ -2,7 +2,7 @@
 
 ## Status
 
-The Web/API and English recorder are deployed to Vercel. Google authentication, MongoDB Atlas persistence, and the legacy capture-to-Codex-to-Heptabase note path have been production-verified. The Journal daily-delivery path is implemented and automatically verified in source, but still requires a real production delivery smoke test before it is considered production-verified.
+The Web/API and English recorder are deployed to Vercel. Google authentication, MongoDB Atlas persistence, and the legacy capture-to-Codex-to-Heptabase note path have been production-verified. Journal delivery plus the Workout/Running and Food recorders are implemented and automatically verified in source, but their latest production and cross-device smoke tests remain pending.
 
 ## System context
 
@@ -47,6 +47,10 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - `POST /api/journal-deliveries` to make failed batches immediately retryable;
 - `GET /api/special-records/english?date=YYYY-MM-DD` to read one daily English document;
 - `PUT /api/special-records/english` to create, revise, or remove an empty daily English document with optimistic revision checking.
+- `GET/PUT /api/special-records/workout` for versioned daily strength/running sessions;
+- `GET/PUT /api/special-records/workout/library` for the revision-safe exercise library;
+- `GET/PUT /api/special-records/food` for daily food entries and nutrition targets;
+- `GET/PUT /api/special-records/food/library` for reusable food defaults.
 
 ### MongoDB Atlas
 
@@ -56,7 +60,8 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Enforce the current document contract at the API boundary and in TypeScript. A database-level JSON Schema validator is deferred while the Cloud API remains the only database writer.
 - Remain accessible only from trusted server-side code.
 - Never expose its connection credentials to the browser or Desktop application.
-- Persist versioned special-recorder payloads in `specialRecords`. The first payload is `english`, uniquely addressed by module and Taipei Journal date; future modules reuse lifecycle fields without sharing their domain payloads.
+- Persist versioned English, Workout, and Food payloads in `specialRecords`, uniquely addressed by module and Taipei Journal date. Modules reuse lifecycle fields without sharing domain payload schemas.
+- Persist revision-safe exercise and food libraries in `specialRecorderSettings`; library entries use stable IDs so later renames preserve historical relationships.
 - Persist Journal delivery state on the source `journalRecords`. One claim leases every eligible idle record for the oldest pending date, preserving oldest-first delivery order without duplicating the raw source data in a second queue.
 - Release abandoned 30-minute Journal leases, delay ordinary failures for 15 minutes, and retain the last error for operator visibility.
 
@@ -67,9 +72,9 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Run processors that require local machine access.
 - Report results and job state changes through the Cloud API.
 - Keep the worker alive when its windows are hidden, expose controls through the Windows tray, and prevent duplicate worker instances.
-- Open Quick Capture with `Ctrl + Alt + C` and toggle Worker Status with `Ctrl + Alt + W`.
+- Open Quick Capture with `Ctrl + Numpad 5` and toggle Worker Status with `Ctrl + NumLock` (`Ctrl + Pause` fallback).
 - Optionally register the installed app to start hidden with Windows.
-- Discover special Capture pages from `capture-pages/*.page.tsx`. The English page keeps an immediate local pending cache and reaches the Cloud through narrow Tauri commands that reuse the saved Desktop bearer-token configuration.
+- Discover special Capture pages from `capture-pages/*.page.tsx`. English, Workout, and Food keep immediate local pending caches and reach the Cloud through narrow Tauri commands that reuse the saved Desktop bearer-token configuration.
 - Show the authoritative Journal delivery queue in Worker Status and make `Check now` retry failures immediately.
 
 ## English synchronization boundary
@@ -93,6 +98,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Read the target Heptabase Journal, then append with its `contentMd5` as a conflict precondition. Cloud records are marked delivered and locked only after the append succeeds.
 - A failed Journal append is reported to Cloud and becomes retryable after 15 minutes or immediately through `Check now`.
 - The legacy note processor selects `codex-cli` or deterministic `none` through `AiProvider::write_markdown`; an optional Codex model is configuration rather than hard-coded policy.
+- Prepared Markdown crosses the `CaptureDestination` port; the current Heptabase CLI implementation can be replaced without changing recorder UI, worker scheduling, or Cloud persistence.
 
 ## Desktop polling behavior
 
