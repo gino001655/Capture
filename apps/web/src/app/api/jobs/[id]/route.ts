@@ -1,5 +1,5 @@
-import { validateJobResult } from "../../../../lib/capture.ts";
-import { captureStore } from "../../../../lib/capture-store.ts";
+import { validateJobReport } from "../../../../lib/capture.ts";
+import { captureStore, type CaptureStore } from "../../../../lib/capture-store.ts";
 import {
   authorizationFailureResponse,
   authorizeDesktopRequest,
@@ -9,7 +9,10 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-export async function PATCH(request: Request, context: RouteContext) {
+type Store = Pick<CaptureStore, "complete" | "fail">;
+
+export function createJobUpdateHandler(store: Store = captureStore) {
+return async function PATCH(request: Request, context: RouteContext) {
   const authorization = authorizeDesktopRequest(request);
 
   if (authorization.status !== "authorized") {
@@ -32,7 +35,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     );
   }
 
-  const validation = validateJobResult(requestBody);
+  const validation = validateJobReport(requestBody);
 
   if (!validation.success) {
     return Response.json(
@@ -47,7 +50,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   const { id } = await context.params;
-  const capture = await captureStore.complete(id, validation.result);
+  const capture = validation.value.outcome === "completed"
+    ? await store.complete(id, validation.value.result)
+    : await store.fail(id, validation.value.error);
 
   if (capture === undefined) {
     return Response.json(
@@ -62,4 +67,7 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 
   return Response.json({ capture });
+};
 }
+
+export const PATCH = createJobUpdateHandler();

@@ -53,8 +53,27 @@ struct Job {
 }
 
 #[derive(Serialize)]
-struct CompleteRequest {
-    result: String,
+struct LegacyJobReportRequest<'a> {
+    outcome: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    result: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<&'a str>,
+}
+
+fn legacy_report(result: &Result<String, String>) -> LegacyJobReportRequest<'_> {
+    match result {
+        Ok(value) => LegacyJobReportRequest {
+            outcome: "completed",
+            result: Some(value),
+            error: None,
+        },
+        Err(error) => LegacyJobReportRequest {
+            outcome: "failed",
+            result: None,
+            error: Some(error),
+        },
+    }
 }
 
 #[derive(Serialize)]
@@ -185,21 +204,25 @@ pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport
     let content = job.content.clone();
     let ai_provider = config.ai_provider.clone();
     let ai_model = config.ai_model.clone();
-    let result = tauri::async_runtime::spawn_blocking(move || {
+    let process_result = tauri::async_runtime::spawn_blocking(move || {
         processor::process_capture(&content, &ai_provider, ai_model.as_deref())
     })
     .await
-    .map_err(|error| format!("The local processor stopped unexpectedly: {error}"))??;
+    .map_err(|error| format!("The local processor stopped unexpectedly: {error}"))?;
 
     client
         .patch(config.endpoint(&format!("api/jobs/{}", job.id)))
         .bearer_auth(&config.device_token)
-        .json(&CompleteRequest { result })
+        .json(&legacy_report(&process_result))
         .send()
         .await
         .map_err(|error| format!("Could not report the result: {error}"))?
         .error_for_status()
         .map_err(|error| format!("Result request failed: {error}"))?;
+
+    if let Err(error) = process_result {
+        return Err(format!("Capture processing failed and will retry: {error}"));
+    }
 
     Ok(WorkerReport {
         outcome: "processed",
@@ -245,7 +268,8 @@ pub(crate) async fn get_journal_delivery_status(
 }
 
 pub(crate) async fn retry_failed_journal_deliveries(config: &WorkerConfig) -> Result<(), String> {
-    Client::new()
+    let client = Client::new();
+    client
         .post(config.endpoint("api/journal-deliveries"))
         .bearer_auth(&config.device_token)
         .send()
@@ -253,6 +277,14 @@ pub(crate) async fn retry_failed_journal_deliveries(config: &WorkerConfig) -> Re
         .map_err(|error| format!("Could not reach the Journal delivery API: {error}"))?
         .error_for_status()
         .map_err(|error| format!("Journal delivery retry request failed: {error}"))?;
+    client
+        .post(config.endpoint("api/jobs/retry"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the legacy retry API: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Legacy retry request failed: {error}"))?;
     Ok(())
 }
 
@@ -274,4 +306,19 @@ pub(crate) async fn create_capture(
         .map_err(|error| format!("Capture response was invalid: {error}"))?;
 
     Ok(response.capture)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::legacy_report;
+
+    #[test]
+    fn processor_failure_becomes_a_failed_cloud_report() {
+        let process_result = Err("Codex is offline".to_owned());
+        let report = serde_json::to_value(legacy_report(&process_result)).unwrap();
+
+        assert_eq!(report["outcome"], "failed");
+        assert_eq!(report["error"], "Codex is offline");
+        assert!(report.get("result").is_none());
+    }
 }

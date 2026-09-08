@@ -1,6 +1,6 @@
 export const MAX_CAPTURE_LENGTH = 5_000;
 
-export type CaptureStatus = "pending" | "processing" | "completed";
+export type CaptureStatus = "pending" | "processing" | "failed" | "completed";
 
 export type Capture = {
   id: string;
@@ -9,6 +9,11 @@ export type Capture = {
   createdAt: string;
   result?: string;
   completedAt?: string;
+  processingAt?: string;
+  leaseExpiresAt?: string;
+  failedAt?: string;
+  nextAttemptAt?: string;
+  lastError?: string;
 };
 
 export type CaptureValidationResult =
@@ -81,4 +86,34 @@ export function validateJobResult(
   }
 
   return { success: true, result: result.trim() };
+}
+
+export type JobReport =
+  | { outcome: "completed"; result: string }
+  | { outcome: "failed"; error: string };
+
+export function validateJobReport(input: unknown):
+  | { success: true; value: JobReport }
+  | { success: false; code: "INVALID_JOB_REPORT"; message: string } {
+  if (typeof input !== "object" || input === null || Array.isArray(input)) {
+    return { success: false, code: "INVALID_JOB_REPORT", message: "Worker report must be an object." };
+  }
+  const candidate = input as Record<string, unknown>;
+  if (candidate.outcome === undefined) {
+    const legacy = validateJobResult(input);
+    return legacy.success
+      ? { success: true, value: { outcome: "completed", result: legacy.result } }
+      : { success: false, code: "INVALID_JOB_REPORT", message: legacy.message };
+  }
+  if (candidate.outcome === "completed" && typeof candidate.result === "string" && candidate.result.trim()) {
+    return { success: true, value: { outcome: "completed", result: candidate.result.trim() } };
+  }
+  if (candidate.outcome === "failed" && typeof candidate.error === "string" && candidate.error.trim()) {
+    return { success: true, value: { outcome: "failed", error: candidate.error.trim().slice(0, 5_000) } };
+  }
+  return {
+    success: false,
+    code: "INVALID_JOB_REPORT",
+    message: "Report must contain a completed result or a failed error.",
+  };
 }

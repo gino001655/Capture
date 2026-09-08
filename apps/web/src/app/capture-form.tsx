@@ -47,6 +47,7 @@ function readCapture(payload: unknown): Capture | null {
     typeof candidate.content !== "string" ||
     (status !== "pending" &&
       status !== "processing" &&
+      status !== "failed" &&
       status !== "completed") ||
     typeof candidate.createdAt !== "string"
   ) {
@@ -63,6 +64,9 @@ function readCapture(payload: unknown): Capture | null {
       : {}),
     ...(typeof candidate.completedAt === "string"
       ? { completedAt: candidate.completedAt }
+      : {}),
+    ...(typeof candidate.lastError === "string"
+      ? { lastError: candidate.lastError }
       : {}),
   };
 }
@@ -205,6 +209,9 @@ export function CaptureForm() {
           <p>{submission.capture.content}</p>
           {submission.capture.result ? (
             <p>Result: {submission.capture.result}</p>
+          ) : null}
+          {submission.capture.lastError ? (
+            <p>{submission.capture.lastError}</p>
           ) : null}
           {pollingMessage ? <span>{pollingMessage}</span> : null}
         </div>

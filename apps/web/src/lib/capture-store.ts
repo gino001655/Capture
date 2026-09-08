@@ -19,6 +19,10 @@ export type CaptureCollection = {
     update: UpdateFilter<CaptureDocument>,
     options: FindOneAndUpdateOptions,
   ): Promise<CaptureDocument | null>;
+  updateMany(
+    filter: Filter<CaptureDocument>,
+    update: UpdateFilter<CaptureDocument>,
+  ): Promise<{ modifiedCount: number }>;
 };
 
 type CaptureCollectionProvider = () => Promise<CaptureCollection>;
@@ -47,11 +51,14 @@ function toCapture(document: CaptureDocument): Capture {
 
 export class CaptureStore {
   private readonly getCollection: CaptureCollectionProvider;
+  private readonly now: () => Date;
 
   constructor(
     getCollection: CaptureCollectionProvider = getMongoCaptureCollection,
+    now: () => Date = () => new Date(),
   ) {
     this.getCollection = getCollection;
+    this.now = now;
   }
 
   async create(content: string): Promise<Capture> {
@@ -59,7 +66,7 @@ export class CaptureStore {
       _id: crypto.randomUUID(),
       content,
       status: "pending",
-      createdAt: new Date().toISOString(),
+      createdAt: this.now().toISOString(),
     };
 
     const collection = await this.getCollection();
@@ -75,9 +82,23 @@ export class CaptureStore {
 
   async claimNext(): Promise<Capture | undefined> {
     const collection = await this.getCollection();
+    const timestamp = this.now();
+    const timestampIso = timestamp.toISOString();
+    await collection.updateMany(
+      { status: "failed", nextAttemptAt: { $lte: timestampIso } },
+      { $set: { status: "pending" }, $unset: { nextAttemptAt: "", failedAt: "" } },
+    );
+    await collection.updateMany(
+      { status: "processing", leaseExpiresAt: { $lte: timestampIso } },
+      { $set: { status: "pending" }, $unset: { processingAt: "", leaseExpiresAt: "" } },
+    );
+    const leaseExpiresAt = new Date(timestamp.getTime() + 30 * 60 * 1_000).toISOString();
     const document = await collection.findOneAndUpdate(
       { status: "pending" },
-      { $set: { status: "processing" } },
+      {
+        $set: { status: "processing", processingAt: timestampIso, leaseExpiresAt },
+        $unset: { lastError: "", failedAt: "", nextAttemptAt: "" },
+      },
       {
         sort: { createdAt: 1, _id: 1 },
         returnDocument: "after",
@@ -95,13 +116,42 @@ export class CaptureStore {
         $set: {
           status: "completed",
           result,
-          completedAt: new Date().toISOString(),
+          completedAt: this.now().toISOString(),
         },
+        $unset: { processingAt: "", leaseExpiresAt: "", lastError: "", failedAt: "", nextAttemptAt: "" },
       },
       { returnDocument: "after" },
     );
 
     return document === null ? undefined : toCapture(document);
+  }
+
+  async fail(id: string, error: string): Promise<Capture | undefined> {
+    const collection = await this.getCollection();
+    const timestamp = this.now();
+    const document = await collection.findOneAndUpdate(
+      { _id: id, status: "processing" },
+      {
+        $set: {
+          status: "failed",
+          lastError: error,
+          failedAt: timestamp.toISOString(),
+          nextAttemptAt: new Date(timestamp.getTime() + 15 * 60 * 1_000).toISOString(),
+        },
+        $unset: { processingAt: "", leaseExpiresAt: "" },
+      },
+      { returnDocument: "after" },
+    );
+    return document === null ? undefined : toCapture(document);
+  }
+
+  async retryFailed(): Promise<number> {
+    const collection = await this.getCollection();
+    const result = await collection.updateMany(
+      { status: "failed" },
+      { $set: { status: "pending" }, $unset: { failedAt: "", nextAttemptAt: "" } },
+    );
+    return result.modifiedCount;
   }
 }
 
