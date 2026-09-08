@@ -6,6 +6,7 @@ import {
   createDateBoundDebounce,
   RECORDER_CATALOG,
   rebaseConflictCandidate,
+  resolveVersionedPayloadConflict,
   recorderDefinition,
 } from "./index.ts";
 
@@ -58,4 +59,26 @@ test("keeping a local conflict preserves its value and rebases only the Cloud re
   });
   assert.notEqual(rebaseConflictCandidate(local, null), local);
   assert.equal(rebaseConflictCandidate(local, null).revision, null);
+});
+
+test("library conflicts keep the complete local payload until the user chooses", () => {
+  const local = { schemaVersion: 1 as const, entries: [{ id: "local", name: "本機名稱" }] };
+  const cloud = {
+    payload: { schemaVersion: 1 as const, entries: [{ id: "cloud", name: "雲端名稱" }] },
+    revision: 7,
+  };
+  const empty = { schemaVersion: 1 as const, entries: [] as Array<{ id: string; name: string }> };
+
+  const keepLocal = resolveVersionedPayloadConflict(local, cloud, "local", empty);
+  assert.deepEqual(keepLocal, { payload: local, revision: 7, retry: true });
+  assert.notEqual(keepLocal.payload, local);
+
+  assert.deepEqual(
+    resolveVersionedPayloadConflict(local, cloud, "cloud", empty),
+    { payload: cloud.payload, revision: 7, retry: false },
+  );
+  assert.deepEqual(
+    resolveVersionedPayloadConflict(local, null, "cloud", empty),
+    { payload: empty, revision: null, retry: false },
+  );
 });

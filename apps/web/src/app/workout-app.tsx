@@ -17,7 +17,7 @@ import { ModuleRail, type CaptureModule } from "./module-rail";
 import { toTaipeiDate } from "../lib/special-record";
 import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../lib/workout-library";
 import { emptyWorkoutLibrary } from "../lib/workout-library";
-import { clampRecorderDate, createDateBoundDebounce, rebaseConflictCandidate } from "@capture/recorder-kit";
+import { clampRecorderDate, createDateBoundDebounce, rebaseConflictCandidate, resolveVersionedPayloadConflict } from "@capture/recorder-kit";
 
 const CACHE_KEY = "capture.workout.v1";
 const AUTOSAVE_MS = 800;
@@ -111,6 +111,7 @@ export function WorkoutApp({
   const [history, setHistory] = useState<WorkoutRecord[]>([]);
   const [library, setLibrary] = useState<WorkoutLibraryPayload>(emptyWorkoutLibrary);
   const [libraryRevision, setLibraryRevision] = useState<number | null>(null);
+  const [libraryConflict, setLibraryConflict] = useState<{ local: WorkoutLibraryPayload; cloud: WorkoutLibraryRecord | null } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [sessionIndex, setSessionIndex] = useState(0);
   const [newExerciseName, setNewExerciseName] = useState("");
@@ -298,20 +299,41 @@ export function WorkoutApp({
     setNewExerciseName("");
   }
 
-  async function saveLibrary(next: WorkoutLibraryPayload) {
+  async function saveLibrary(next: WorkoutLibraryPayload, expectedRevision = libraryRevision) {
     setLibrary(next);
     try {
-      const response = await fetch("/api/special-records/workout/library", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ payload: next, expectedRevision: libraryRevision }) });
+      const response = await fetch("/api/special-records/workout/library", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ payload: next, expectedRevision }) });
       const result = await response.json();
       if (!response.ok) {
+        if (result?.error?.code === "REVISION_CONFLICT") {
+          setLibraryConflict({ local: structuredClone(next), cloud: result.record ?? null });
+          setIssue("選擇動作庫版本");
+          return;
+        }
         if (result.record) { setLibrary(result.record.payload); setLibraryRevision(result.record.revision); }
         setIssue(result?.error?.code === "LIBRARY_ENTRY_IN_USE" ? "有歷史的動作只能封存" : "動作庫尚未同步");
         return;
       }
       setLibrary(result.record.payload);
       setLibraryRevision(result.record.revision);
+      setLibraryConflict(null);
       setIssue(null);
     } catch { setIssue("動作庫尚未同步"); }
+  }
+
+  function resolveLibraryConflict(choice: "cloud" | "local") {
+    if (!libraryConflict) return;
+    const resolution = resolveVersionedPayloadConflict(
+      libraryConflict.local,
+      libraryConflict.cloud,
+      choice,
+      emptyWorkoutLibrary(),
+    );
+    setLibrary(resolution.payload);
+    setLibraryRevision(resolution.revision);
+    setLibraryConflict(null);
+    setIssue(resolution.retry ? "動作庫同步中" : null);
+    if (resolution.retry) void saveLibrary(resolution.payload, resolution.revision);
   }
 
   function libraryEntryUsed(entry: WorkoutLibraryEntry) {
@@ -381,6 +403,7 @@ export function WorkoutApp({
         <span className={local.pending ? "workoutSync pending" : "workoutSync"}>{issue ? "!" : local.pending ? "·" : ""}</span>
       </header>
       {local.conflict ? <div className="specialConflict" role="alert"><span>版本</span><button type="button" onClick={useCloudVersion}>雲端</button><button type="button" onClick={keepLocalVersion}>本機</button></div> : null}
+      {libraryConflict ? <div className="specialConflict" role="alert"><span>動作庫</span><button type="button" onClick={() => resolveLibraryConflict("cloud")}>雲端</button><button type="button" onClick={() => resolveLibraryConflict("local")}>本機</button></div> : null}
 
       {historyOpen ? (
         <section className="workoutHistory">

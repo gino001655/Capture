@@ -383,7 +383,7 @@ pub(crate) async fn get_workout_library(
 pub(crate) async fn save_workout_library(
     app: AppHandle,
     input: WorkoutLibrarySaveInput,
-) -> Result<Option<WorkoutLibraryRecord>, String> {
+) -> Result<SaveCommandResult<WorkoutLibraryRecord>, String> {
     let config = WorkerConfig::load(&app)?;
     let response = Client::new()
         .put(config.endpoint("api/special-records/workout/library"))
@@ -392,7 +392,7 @@ pub(crate) async fn save_workout_library(
         .send()
         .await
         .map_err(|error| format!("Could not reach Workout library API: {error}"))?;
-    decode_workout_library_response(response).await
+    decode_save_response(response, "Workout library").await
 }
 
 async fn decode_food_response(response: reqwest::Response) -> Result<Option<FoodRecord>, String> {
@@ -485,7 +485,7 @@ pub(crate) async fn get_food_library(app: AppHandle) -> Result<Option<FoodLibrar
 pub(crate) async fn save_food_library(
     app: AppHandle,
     input: FoodLibrarySaveInput,
-) -> Result<Option<FoodLibraryRecord>, String> {
+) -> Result<SaveCommandResult<FoodLibraryRecord>, String> {
     let config = WorkerConfig::load(&app)?;
     let response = Client::new()
         .put(config.endpoint("api/special-records/food/library"))
@@ -494,7 +494,7 @@ pub(crate) async fn save_food_library(
         .send()
         .await
         .map_err(|error| format!("Could not reach Food library API: {error}"))?;
-    decode_food_library_response(response).await
+    decode_save_response(response, "Food library").await
 }
 
 #[cfg(test)]

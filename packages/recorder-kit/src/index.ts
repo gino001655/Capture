@@ -63,3 +63,23 @@ export function rebaseConflictCandidate<
     pending: true,
   };
 }
+
+export function resolveVersionedPayloadConflict<P>(
+  localPayload: P,
+  cloudRecord: { payload: P; revision: number } | null,
+  choice: "cloud" | "local",
+  emptyPayload: P,
+): { payload: P; revision: number | null; retry: boolean } {
+  if (choice === "local") {
+    return {
+      payload: structuredClone(localPayload),
+      revision: cloudRecord?.revision ?? null,
+      retry: true,
+    };
+  }
+  return {
+    payload: structuredClone(cloudRecord?.payload ?? emptyPayload),
+    revision: cloudRecord?.revision ?? null,
+    retry: false,
+  };
+}

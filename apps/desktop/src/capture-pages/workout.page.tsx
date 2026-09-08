@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import { clampRecorderDate, createDateBoundDebounce, rebaseConflictCandidate } from "@capture/recorder-kit";
+import { clampRecorderDate, createDateBoundDebounce, rebaseConflictCandidate, resolveVersionedPayloadConflict } from "@capture/recorder-kit";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 
 import type {
@@ -46,6 +46,7 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   const [history, setHistory] = useState<WorkoutRecord[]>([]);
   const [library, setLibrary] = useState<WorkoutLibraryPayload>(emptyWorkoutLibrary);
   const [libraryRevision, setLibraryRevision] = useState<number | null>(null);
+  const [libraryConflict, setLibraryConflict] = useState<{ local: WorkoutLibraryPayload; cloud: WorkoutLibraryRecord | null } | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
   const [name, setName] = useState("");
   const [issue, setIssue] = useState(false);
@@ -156,13 +157,15 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
     updateSession((target) => target.exercises.push({ id: crypto.randomUUID(), kind: "strength", libraryEntryId: entry.id, name: exerciseName, note: "", sets: old?.sets.length ? old.sets.map(blankSet) : [blankSet()] }));
     setName("");
   }
-  async function saveLibrary(next: WorkoutLibraryPayload) {
+  async function saveLibrary(next: WorkoutLibraryPayload, expectedRevision = libraryRevision) {
     setLibrary(next);
     try {
-      const record = await invoke<WorkoutLibraryRecord | null>("save_workout_library", { input: { payload: next, expectedRevision: libraryRevision } });
-      setLibrary(record?.payload ?? next); setLibraryRevision(record?.revision ?? libraryRevision); setIssue(false);
+      const result = await invoke<SaveResult<WorkoutLibraryRecord>>("save_workout_library", { input: { payload: next, expectedRevision } });
+      if (result.conflict) { setLibraryConflict({ local: structuredClone(next), cloud: result.record }); setIssue(true); return; }
+      setLibrary(result.record?.payload ?? next); setLibraryRevision(result.record?.revision ?? expectedRevision); setLibraryConflict(null); setIssue(false);
     } catch { setIssue(true); }
   }
+  function resolveLibraryConflict(choice: "cloud" | "local") { if (!libraryConflict) return; const resolution = resolveVersionedPayloadConflict(libraryConflict.local, libraryConflict.cloud, choice, emptyWorkoutLibrary()); setLibrary(resolution.payload); setLibraryRevision(resolution.revision); setLibraryConflict(null); setIssue(resolution.retry); if (resolution.retry) void saveLibrary(resolution.payload, resolution.revision); }
   function libraryEntryUsed(entry: WorkoutLibraryEntry) {
     return history.some((record) => record.payload.sessions.some((session) =>
       session.exercises.some((exercise) => exercise.kind === "strength" && (
@@ -189,6 +192,7 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   return <main className="captureExtensionPage desktopWorkout viewEnter" aria-label="重訓紀錄" tabIndex={0} onKeyDown={keyNavigation}>
     <header><button onClick={() => setLibraryOpen((open) => !open)}>≡</button><label>{date.slice(5).replace("-", ".")}<input type="date" max={today} value={date} onChange={(event) => void load(event.target.value)} /></label><span>{issue ? "!" : local.pending ? "·" : ""}</span></header>
     {local.conflict ? <div className="specialConflict" role="alert"><span>版本</span><button type="button" onClick={useCloudVersion}>雲端</button><button type="button" onClick={keepLocalVersion}>本機</button></div> : null}
+    {libraryConflict ? <div className="specialConflict" role="alert"><span>動作庫</span><button type="button" onClick={() => resolveLibraryConflict("cloud")}>雲端</button><button type="button" onClick={() => resolveLibraryConflict("local")}>本機</button></div> : null}
     <section>
       {libraryOpen ? <div className="desktopLibrary">{library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}><input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const nextName = event.target.value.trim(); if (nextName) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name: nextName } : item) }); }} /><button disabled={index === 0} onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↑</button><button disabled={index === entries.length - 1} onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↓</button><button onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "◇" : "—"}</button>{!libraryEntryUsed(entry) ? <button onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>×</button> : <span />}</div>)}</div> : !activeSession ? <div className="desktopWorkoutEmpty"><button disabled={!editable} onClick={() => mutate((payload) => payload.sessions.push(newSession()))}>＋</button>{recent.map((item) => <small key={item}>{item}</small>)}</div> : <>
         <div className="desktopWorkoutSession"><input placeholder="訓練" value={activeSession.name} disabled={!editable} onChange={(event) => updateSession((target) => { target.name = event.target.value; })} /><button disabled={!editable} onClick={() => updateSession((target) => { target.completedAt = target.completedAt ? null : new Date().toISOString(); })}>{activeSession.completedAt ? "↶" : "✓"}</button></div>
