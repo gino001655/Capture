@@ -109,7 +109,23 @@ pub(crate) struct WorkerReport {
     pub(crate) job_id: Option<String>,
 }
 
-pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport, String> {
+const MAX_WORK_PER_CHECK: usize = 20;
+
+#[derive(Debug, PartialEq, Eq)]
+enum DrainAction {
+    Continue,
+    Stop,
+}
+
+fn drain_action(processed_count: usize, outcome: &str) -> DrainAction {
+    if outcome == "processed" && processed_count < MAX_WORK_PER_CHECK {
+        DrainAction::Continue
+    } else {
+        DrainAction::Stop
+    }
+}
+
+async fn check_one(config: &WorkerConfig) -> Result<WorkerReport, String> {
     let client = Client::new();
     let journal_response = client
         .post(config.endpoint("api/journal-deliveries/claim"))
@@ -231,6 +247,38 @@ pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport
     })
 }
 
+pub(crate) async fn check_for_work(config: &WorkerConfig) -> Result<WorkerReport, String> {
+    let mut processed_count = 0;
+    let mut last_job_id = None;
+
+    loop {
+        let report = check_one(config).await?;
+        if report.outcome != "processed" {
+            return if processed_count == 0 {
+                Ok(report)
+            } else {
+                Ok(WorkerReport {
+                    outcome: "processed",
+                    message: format!("Processed {processed_count} queued item(s)."),
+                    job_id: last_job_id,
+                })
+            };
+        }
+
+        processed_count += 1;
+        last_job_id = report.job_id;
+        if drain_action(processed_count, report.outcome) == DrainAction::Stop {
+            return Ok(WorkerReport {
+                outcome: "processed",
+                message: format!(
+                    "Processed {processed_count} queued item(s); more work may remain."
+                ),
+                job_id: last_job_id,
+            });
+        }
+    }
+}
+
 async fn report_journal_delivery(
     client: &Client,
     config: &WorkerConfig,
@@ -310,7 +358,7 @@ pub(crate) async fn create_capture(
 
 #[cfg(test)]
 mod tests {
-    use super::legacy_report;
+    use super::{drain_action, legacy_report, DrainAction, MAX_WORK_PER_CHECK};
 
     #[test]
     fn processor_failure_becomes_a_failed_cloud_report() {
@@ -320,5 +368,13 @@ mod tests {
         assert_eq!(report["outcome"], "failed");
         assert_eq!(report["error"], "Codex is offline");
         assert!(report.get("result").is_none());
+    }
+
+
+    #[test]
+    fn drain_continues_only_for_processed_work_below_the_bound() {
+        assert_eq!(drain_action(1, "processed"), DrainAction::Continue);
+        assert_eq!(drain_action(1, "idle"), DrainAction::Stop);
+        assert_eq!(drain_action(MAX_WORK_PER_CHECK, "processed"), DrainAction::Stop);
     }
 }
