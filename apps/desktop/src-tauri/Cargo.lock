@@ -390,7 +390,7 @@ dependencies = [
 
 [[package]]
 name = "capture-desktop"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "dotenvy",
  "reqwest 0.12.28",

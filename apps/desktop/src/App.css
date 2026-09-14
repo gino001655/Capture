@@ -531,7 +531,7 @@ button:disabled {
 .journalToolbar {
   height: 42px;
   display: grid;
-  grid-template-columns: 34px 34px 1fr 34px;
+  grid-template-columns: 34px 34px 1fr 34px 34px;
   align-items: center;
   border-bottom: 1px solid var(--line);
 }
@@ -842,7 +842,7 @@ button:disabled {
   color: var(--ink);
   overflow: hidden;
 }
-.desktopWorkout > header { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; border-bottom: 1px solid var(--line); }
+.desktopWorkout > header { display: grid; grid-template-columns: 52px 1fr 36px; align-items: center; border-bottom: 1px solid var(--line); }
 .desktopWorkout > header label { position: relative; display: grid; place-items: center; height: 100%; font-size: 0.76rem; }
 .desktopWorkout > header input { position: absolute; inset: 0; width: 100%; opacity: 0; }
 .desktopWorkout > header span { text-align: center; }
@@ -852,8 +852,11 @@ button:disabled {
 .desktopWorkoutEmpty { min-height: 320px; display: flex; flex-wrap: wrap; place-content: center; gap: 8px; }
 .desktopWorkoutEmpty button { width: 100%; font-size: 1.8rem; }
 .desktopWorkoutEmpty small { opacity: 0.5; }
-.desktopLibrary { padding: 8px 10px; }
-.desktopLibrary > div { display: grid; grid-template-columns: 1fr repeat(4, 26px); align-items: center; }
+.desktopLibrary { padding: 14px 12px; }
+.desktopLibrary h2 { margin: 0 0 4px; font-size: 0.82rem; }
+.desktopLibrary p { margin: 0 0 12px; opacity: 0.5; font-size: 0.62rem; }
+.desktopLibrary > div { display: grid; grid-template-columns: minmax(80px, 1fr) repeat(4, auto); gap: 6px; align-items: center; }
+.desktopLibrary button { font-size: 0.58rem; }
 .desktopLibrary > div.archived { opacity: 0.4; }
 .desktopLibrary input { min-width: 0; padding: 7px 2px; border-bottom: 1px solid transparent; }
 .desktopWorkoutSession { display: grid; grid-template-columns: 1fr 36px; border-bottom: 1px solid var(--line); }
@@ -865,6 +868,11 @@ button:disabled {
 .desktopExerciseName { width: 100%; padding: 3px 0 8px; font-weight: 700; }
 .desktopStrengthStats { display: flex; flex-wrap: wrap; gap: 4px 8px; margin: -4px 0 6px; opacity: 0.55; font-size: 0.58rem; }
 .desktopStrengthStats small { flex-basis: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.desktopStrengthStats summary { flex-basis: 100%; cursor: pointer; }
+.desktopSectionTitle { margin: 0; padding: 13px 12px 7px; border-top: 7px solid color-mix(in srgb, currentColor 5%, transparent); font-size: 0.76rem; }
+.desktopSectionTitle small { margin-left: 4px; opacity: 0.45; font-weight: 400; }
+.desktopPreviousStrength { display: grid; gap: 3px; margin: 0 0 8px; padding: 7px 8px; border-left: 3px solid currentColor; background: color-mix(in srgb, currentColor 5%, transparent); font-size: 0.62rem; }
+.desktopPreviousStrength.empty { opacity: 0.45; border-left-color: var(--line); }
 .desktopSet { display: grid; grid-template-columns: 20px repeat(4, 1fr) 28px; gap: 4px; align-items: center; padding: 3px 0; transition: opacity 120ms ease; }
 .desktopSet.ghost { opacity: 0.42; }
 .desktopSet.labels { opacity: 0.42; font-size: 0.58rem; text-align: center; }
@@ -882,8 +890,11 @@ button:disabled {
 .desktopAddExercise > div { grid-column: 1 / -1; display: flex; gap: 4px; overflow-x: auto; }
 .desktopAddExercise > div button { white-space: nowrap; opacity: 0.5; font-size: 0.66rem; }
 .desktopSessionNote { padding: 10px 12px; }
-.desktopRest { position: sticky; bottom: 8px; display: flex; align-items: center; gap: 6px; width: max-content; margin: 8px auto; padding: 5px 8px; border: 1px solid var(--line); background: var(--paper); }
+.desktopFloatingActions { position: sticky; z-index: 4; bottom: 8px; display: flex; justify-content: center; gap: 7px; width: max-content; max-width: calc(100% - 16px); margin: 12px auto 8px; }
+.desktopRest { display: flex; align-items: center; gap: 6px; min-height: 38px; margin: 0; padding: 5px 8px; border: 1px solid currentColor; background: var(--paper); box-shadow: 0 6px 18px color-mix(in srgb, currentColor 15%, transparent); }
+.desktopRest small { opacity: 0.5; font-size: 0.56rem; }
 .desktopRest strong { min-width: 44px; font-variant-numeric: tabular-nums; }
+.desktopNewSession { min-height: 38px; padding: 5px 10px; border: 1px solid currentColor !important; background: var(--paper) !important; box-shadow: 0 6px 18px color-mix(in srgb, currentColor 15%, transparent); font-weight: 700; }
 .desktopRun > div:first-child { display: flex; justify-content: space-between; align-items: center; }
 .desktopRun > div:first-child strong { font-size: 0.7rem; font-variant-numeric: tabular-nums; }
 .desktopRunGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
@@ -895,18 +906,29 @@ button:disabled {
 .desktopSegments > button { justify-self: start; opacity: 0.55; }
 
 .desktopFood { display: grid; grid-template-rows: 34px minmax(0, 1fr); color: var(--ink); overflow: hidden; }
-.desktopFood > header { display: grid; grid-template-columns: 58px 1fr 1fr 22px; align-items: center; border-bottom: 1px solid var(--line); font-size: 0.62rem; text-align: center; }
+.desktopFood > header { display: grid; grid-template-columns: 58px 1fr 74px; align-items: center; border-bottom: 1px solid var(--line); font-size: 0.62rem; text-align: center; }
 .desktopFood > header label { position: relative; display: grid; place-items: center; height: 100%; }
 .desktopFood > header label input { position: absolute; inset: 0; width: 100%; opacity: 0; }
 .desktopFood > header label:not(:first-child) { display: flex; justify-content: center; align-items: baseline; }
 .desktopFood > header label:not(:first-child) input { position: static; width: 38px; opacity: 1; text-align: start; font-size: 0.58rem; }
 .desktopFood > header strong { font-weight: 600; }
-.desktopFood > header i { font-style: normal; }
+.desktopFood > header i { padding-right: 8px; opacity: 0.55; font-style: normal; font-size: 0.56rem; text-align: end; }
 .desktopFood > section { min-height: 0; overflow-y: auto; scrollbar-width: none; }
 .desktopFood > section::-webkit-scrollbar { display: none; }
-.desktopFood nav { display: flex; gap: 4px; overflow-x: auto; padding: 7px 9px; border-bottom: 1px solid var(--line); }
+.desktopFood nav { display: flex; flex-wrap: wrap; gap: 6px; overflow-x: auto; padding: 0; }
 .desktopFood button, .desktopFood input, .desktopFood textarea { min-width: 0; border: 0; outline: 0; background: transparent; color: inherit; font: inherit; }
-.desktopFood nav button { flex: 0 0 auto; opacity: 0.62; }
+.desktopFood nav button { flex: 0 0 auto; opacity: 0.62; padding: 5px 0; }
+.desktopFood nav .desktopPrimaryAction { padding: 5px 8px; border: 1px solid currentColor; opacity: 1; font-weight: 700; }
+.desktopFoodSection { padding: 13px 11px; border-bottom: 7px solid color-mix(in srgb, currentColor 5%, transparent); }
+.desktopFoodSection > h2 { margin: 0 0 10px; font-size: 0.76rem; }
+.desktopFoodSection > h2 small { margin-left: 4px; opacity: 0.45; font-size: 0.58rem; font-weight: 400; }
+.desktopFoodTotals { display: flex; gap: 24px; font-size: 0.68rem; }
+.desktopFoodTotals strong { font-size: 0.9rem; }
+.desktopFoodTargets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 10px; }
+.desktopFoodTargets label { display: grid; gap: 3px; font-size: 0.58rem; }
+.desktopFoodTargets input { padding: 5px 1px; border-bottom: 1px solid var(--line); }
+.desktopFoodRecords { padding-left: 0; padding-right: 0; }
+.desktopFoodRecords > h2, .desktopFoodRecords > p { padding-left: 11px; padding-right: 11px; }
 .desktopFood article { padding: 9px 11px; border-bottom: 1px solid var(--line); }
 .desktopFood article > div:first-child { display: grid; grid-template-columns: 1fr auto 24px; align-items: center; gap: 5px; }
 .desktopFoodName { padding: 3px 0 7px; font-weight: 700 !important; }
@@ -915,8 +937,9 @@ button:disabled {
 .desktopFoodFields label { display: grid; gap: 2px; opacity: 0.65; font-size: 0.58rem; }
 .desktopFoodFields input { width: 100%; padding: 4px 1px; border-bottom: 1px solid var(--line); }
 .desktopFood article textarea { width: 100%; min-height: 30px; padding-top: 7px; resize: none; }
-.desktopFoodLibrary { padding: 7px 9px; border-bottom: 1px solid var(--line); }
-.desktopFoodLibrary > div { display: grid; grid-template-columns: 1fr repeat(4, 24px); align-items: center; }
+.desktopFoodLibrary { padding-top: 7px; border-top: 1px solid var(--line); }
+.desktopFoodLibrary > div { display: grid; grid-template-columns: minmax(70px, 1fr) repeat(4, auto); gap: 5px; align-items: center; }
+.desktopFoodLibrary button { font-size: 0.56rem; }
 .desktopFoodLibrary > div.archived { opacity: 0.4; }
 .desktopFoodLibrary input { padding: 6px 1px; }
 

@@ -15,6 +15,7 @@ import {
   markBackgrounded,
   readLocalState,
   shiftJournalDate,
+  startNewForDate,
   toTaipeiJournalDate,
   type LocalJournalDraft,
 } from "./journal-session.ts";
@@ -172,6 +173,43 @@ test("finishing an empty draft creates no pending mutation", () => {
 
   assert.equal(finished.pending.length, 0);
   assert.equal(hasJournalContent(finished.active.areas), false);
+});
+
+test("starting a capture for an earlier date keeps that date on the new blank draft", () => {
+  const state = createLocalState(
+    new Date("2026-08-19T03:00:00Z"),
+    fixedIdFactory(),
+  );
+  const next = startNewForDate(
+    state,
+    "2026-08-18",
+    new Date("2026-08-19T03:01:00Z"),
+    fixedIdFactory(3),
+  );
+
+  assert.equal(next.active.journalDate, "2026-08-18");
+  assert.equal(hasJournalContent(next.active.areas), false);
+  assert.equal(next.pending.length, 0);
+});
+
+test("starting an earlier-date capture first preserves a written current draft", () => {
+  const state = editActiveArea(
+    createLocalState(new Date("2026-08-19T03:00:00Z"), fixedIdFactory()),
+    "event",
+    "today's unfinished note",
+  );
+  const next = startNewForDate(
+    state,
+    "2026-08-18",
+    new Date("2026-08-19T03:01:00Z"),
+    fixedIdFactory(3),
+  );
+
+  assert.equal(next.pending.length, 1);
+  assert.equal(next.pending[0]?.journalDate, "2026-08-19");
+  assert.equal(next.pending[0]?.areas.event, "today's unfinished note");
+  assert.equal(next.active.journalDate, "2026-08-18");
+  assert.equal(hasJournalContent(next.active.areas), false);
 });
 
 test("fresh drafts skip identifiers already used by queued work", () => {

@@ -335,6 +335,25 @@ export function finishActive(
   };
 }
 
+export function startNewForDate(
+  state: JournalLocalState,
+  journalDate: string,
+  now: Date,
+  idFactory: IdFactory,
+): JournalLocalState {
+  if (!validateJournalDate(journalDate)) {
+    throw new RangeError("Journal date must be valid.");
+  }
+
+  const next = hasJournalContent(state.active.areas)
+    ? finishActive(state, now, idFactory)
+    : state;
+  return {
+    ...next,
+    active: { ...next.active, journalDate },
+  };
+}
+
 export function markBackgrounded(
   state: JournalLocalState,
   now: Date,

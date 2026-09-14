@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { emptyWorkoutPayload, elapsedWorkoutTimer, nextWorkoutSetIndex, validateWorkoutSaveRequest, type WorkoutSaveInput } from "./workout-record.ts";
+import { emptyWorkoutPayload, elapsedWorkoutTimer, findPreviousStrengthExercise, nextWorkoutSetIndex, summarizeWorkoutRecord, validateWorkoutSaveRequest, type WorkoutRecord, type WorkoutSaveInput } from "./workout-record.ts";
 
 const input: WorkoutSaveInput = {
   journalDate: "2026-09-08",
@@ -73,4 +73,48 @@ test("set confirmation advances only when another copied set exists", () => {
   assert.equal(nextWorkoutSetIndex(1, 3), 2);
   assert.equal(nextWorkoutSetIndex(2, 3), null);
   assert.equal(nextWorkoutSetIndex(-1, 3), null);
+});
+
+function record(journalDate: string, name: string, weightKg: number, reps: number): WorkoutRecord {
+  const value = structuredClone(input.payload);
+  value.sessions[0].name = name;
+  const exercise = value.sessions[0].exercises[0];
+  if (exercise.kind !== "strength") throw new Error("strength fixture expected");
+  exercise.sets[0].weightKg = weightKg;
+  exercise.sets[0].reps = reps;
+  return {
+    id: `workout:${journalDate}`,
+    moduleId: "workout",
+    journalDate,
+    payload: value,
+    revision: 0,
+    processingState: "pending",
+    createdAt: `${journalDate}T02:00:00.000Z`,
+    updatedAt: `${journalDate}T02:00:00.000Z`,
+    lockedAt: null,
+  };
+}
+
+test("previous strength means the latest earlier workout, not the historical maximum", () => {
+  const olderMaximum = record("2026-09-01", "Push A", 100, 3);
+  const latestEarlier = record("2026-09-12", "Push B", 80, 8);
+  const today = record("2026-09-14", "Push C", 85, 6);
+
+  const previous = findPreviousStrengthExercise(
+    [olderMaximum, today, latestEarlier],
+    "Bench press",
+    undefined,
+    "2026-09-14",
+  );
+
+  assert.equal(previous?.journalDate, "2026-09-12");
+  assert.deepEqual(previous?.sets.map((set) => [set.weightKg, set.reps]), [[80, 8]]);
+});
+
+test("workout history summary exposes both session and exercise names", () => {
+  const summary = summarizeWorkoutRecord(record("2026-09-12", "胸＋三頭", 80, 8));
+  assert.deepEqual(summary, {
+    sessionNames: ["胸＋三頭"],
+    exerciseNames: ["Bench press"],
+  });
 });

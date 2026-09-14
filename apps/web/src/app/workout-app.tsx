@@ -5,13 +5,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   RunningExercise,
   StrengthExercise,
+  PreviousStrengthExercise,
   WorkoutExercise,
   WorkoutPayload,
   WorkoutRecord,
   WorkoutSession,
   WorkoutSet,
 } from "../lib/workout-record";
-import { elapsedWorkoutTimer, emptyWorkoutPayload, nextWorkoutSetIndex } from "../lib/workout-record";
+import { elapsedWorkoutTimer, emptyWorkoutPayload, findPreviousStrengthExercise, nextWorkoutSetIndex, summarizeWorkoutRecord } from "../lib/workout-record";
 import { shiftJournalDate } from "./journal-session";
 import { ModuleRail, type CaptureModule } from "./module-rail";
 import { toTaipeiDate } from "../lib/special-record";
@@ -294,19 +295,6 @@ export function WorkoutApp({
     setSessionIndex(localRef.current.payload.sessions.length - 1);
   }
 
-  function previousStrength(name: string, libraryEntryId?: string): StrengthExercise | undefined {
-    for (const record of history) for (const item of record.payload.sessions) {
-      const found = item.exercises.find((exercise): exercise is StrengthExercise =>
-        exercise.kind === "strength" && (
-          (libraryEntryId !== undefined && exercise.libraryEntryId === libraryEntryId) ||
-          (!exercise.libraryEntryId && exercise.name.toLocaleLowerCase() === name.toLocaleLowerCase())
-        ),
-      );
-      if (found) return found;
-    }
-    return undefined;
-  }
-
   function addStrength(name: string) {
     const trimmed = name.trim();
     if (!trimmed || !session) return;
@@ -315,7 +303,7 @@ export function WorkoutApp({
       entry = { id: crypto.randomUUID(), name: trimmed, order: library.entries.length, archived: false };
       void saveLibrary({ ...library, entries: [...library.entries, entry] });
     }
-    const previous = previousStrength(trimmed, entry.id);
+    const previous = findPreviousStrengthExercise(history, trimmed, entry.id, selectedDate);
     const exercise: StrengthExercise = {
       id: crypto.randomUUID(), kind: "strength", name: trimmed, note: "",
       libraryEntryId: entry.id,
@@ -436,27 +424,29 @@ export function WorkoutApp({
         <span className={local.pending ? "workoutSync pending" : "workoutSync"}>{issue ? "!" : local.pending ? "·" : ""}</span>
       </header>
       <div className="recorderNotices">
-      {local.conflict ? <div className="specialConflict" role="alert"><span>另一台裝置也更新了這天的訓練，請選擇要保留的內容。</span><button type="button" onClick={useCloudVersion}>使用另一台的內容</button><button type="button" onClick={keepLocalVersion}>保留這台的內容</button></div> : null}
-      {libraryConflict ? <div className="specialConflict" role="alert"><span>常用動作在另一台有更新，請選擇要保留的版本。</span><button type="button" onClick={() => resolveLibraryConflict("cloud")}>使用另一台的內容</button><button type="button" onClick={() => resolveLibraryConflict("local")}>保留這台的內容</button></div> : null}
+      {local.conflict ? <div className="specialConflict" role="alert"><span>雲端已有較新的訓練內容，請選擇要保留的版本。</span><button type="button" onClick={useCloudVersion}>保留雲端內容</button><button type="button" onClick={keepLocalVersion}>保留這台內容</button></div> : null}
+      {libraryConflict ? <div className="specialConflict" role="alert"><span>雲端已有較新的常用動作，請選擇要保留的版本。</span><button type="button" onClick={() => resolveLibraryConflict("cloud")}>保留雲端內容</button><button type="button" onClick={() => resolveLibraryConflict("local")}>保留這台內容</button></div> : null}
       </div>
 
       {historyOpen ? (
         <section className="workoutHistory">
-          <div className="workoutLibrary">
+          <details className="workoutLibrary recorderSection">
+            <summary><strong>管理常用動作</strong><small>重新排序、封存或刪除</small></summary>
             {library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}>
               <input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const name = event.target.value.trim(); if (name) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name } : item) }); }} />
-              <button disabled={index === 0} aria-label="上移" onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↑</button>
-              <button disabled={index === entries.length - 1} aria-label="下移" onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↓</button>
-              <button aria-label={entry.archived ? "取消封存" : "封存"} onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "◇" : "—"}</button>
-              {!libraryEntryUsed(entry) ? <button aria-label="刪除" onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>×</button> : <span />}
+              <button disabled={index === 0} onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>上移</button>
+              <button disabled={index === entries.length - 1} onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>下移</button>
+              <button onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "取消封存" : "封存"}</button>
+              {!libraryEntryUsed(entry) ? <button onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>刪除</button> : <span />}
             </div>)}
-          </div>
-          {history.map((record) => (
-            <button key={record.id} onClick={() => { setHistoryOpen(false); void load(record.journalDate); }}>
+          </details>
+          <h2 className="recorderSectionTitle">訓練歷史</h2>
+          {history.map((record) => { const summary = summarizeWorkoutRecord(record); return (
+            <button className="workoutHistoryRow" key={record.id} onClick={() => { setHistoryOpen(false); void load(record.journalDate); }}>
               <time>{record.journalDate.slice(5).replace("-", ".")}</time>
-              <span>{record.payload.sessions.map((item) => item.name || item.exercises.map((exercise) => exercise.name).join(" · ")).join(" / ")}</span>
+              <span><strong>{summary.sessionNames.join(" / ")}</strong><small>{summary.exerciseNames.length ? summary.exerciseNames.join(" · ") : "尚無動作"}</small></span>
             </button>
-          ))}
+          ); })}
         </section>
       ) : (
         <section className="workoutBody">
@@ -473,16 +463,18 @@ export function WorkoutApp({
             </div>
           ) : (
             <div className={editable ? "workoutSession" : "workoutSession locked"}>
-              <div className="sessionHeader">
+              <section className="recorderSection currentWorkoutSection"><h2>本次訓練</h2><div className="sessionHeader">
                 <input aria-label="訓練名稱" placeholder="訓練" value={session.name} disabled={!editable} onChange={(event) => updateSession((target) => { target.name = event.target.value; })} />
                 <button type="button" disabled={!editable} onClick={() => updateSession((target) => { target.completedAt = target.completedAt ? null : new Date().toISOString(); })}>{session.completedAt ? "繼續訓練" : "完成訓練"}</button>
-              </div>
+              </div></section>
 
+              <section className="recorderSection exerciseListSection"><h2>已加入的動作 <small>{session.exercises.length}</small></h2>
               {session.exercises.map((exercise) => exercise.kind === "strength" ? (
                 <StrengthEditor key={exercise.id} exercise={exercise} editable={editable}
                   expanded={expandedExerciseId === exercise.id}
                   toggle={() => setExpandedExerciseId(expandedExerciseId === exercise.id ? null : exercise.id)}
                   stats={strengthStats.get(exercise.libraryEntryId ?? exercise.name.toLocaleLowerCase())}
+                  previous={findPreviousStrengthExercise(history, exercise.name, exercise.libraryEntryId, selectedDate)}
                   update={(change) => updateExercise(exercise.id, change)}
                   confirmSet={(setId, nextSetId) => {
                     updateSession((target) => {
@@ -498,19 +490,20 @@ export function WorkoutApp({
               ) : (
                 <RunningEditor key={exercise.id} exercise={exercise} editable={editable} expanded={expandedExerciseId === exercise.id} toggle={() => setExpandedExerciseId(expandedExerciseId === exercise.id ? null : exercise.id)} update={(change) => updateExercise(exercise.id, change)} />
               ))}
+              {session.exercises.length === 0 ? <p className="recorderHint">尚未加入動作。</p> : null}</section>
 
               {editable ? (
-                <div className="addExercise">
+                <section className="recorderSection addExerciseSection"><h2>新增動作</h2><div className="addExercise">
                   <input value={newExerciseName} placeholder="輸入動作名稱" onChange={(event) => setNewExerciseName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addStrength(newExerciseName); }} />
                   <button onClick={() => addStrength(newExerciseName)}>新增動作</button>
                   <button onClick={addRun}>新增跑步</button>
                   <div><small>點選新增常用動作</small>{recentExercises.map((name) => <button key={name} onClick={() => addStrength(name)}>{name}</button>)}</div>
-                </div>
+                </div></section>
               ) : null}
 
-              <textarea className="sessionNote" aria-label="訓練註記" placeholder="註記" value={session.note} disabled={!editable} onChange={(event) => updateSession((target) => { target.note = event.target.value; })} />
+              <section className="recorderSection sessionNoteSection"><h2>訓練備註</h2><textarea className="sessionNote" aria-label="訓練註記" placeholder="記下今天的感受或調整" value={session.note} disabled={!editable} onChange={(event) => updateSession((target) => { target.note = event.target.value; })} /></section>
 
-              <div className="restTimer">
+              <div className="workoutFloatingActions"><div className="restTimer"><small>休息</small>
                 <strong>{Math.floor(elapsed(session) / 60)}:{String(elapsed(session) % 60).padStart(2, "0")}</strong>
                 {editable ? <>
                   <button onClick={() => updateSession((target) => {
@@ -522,7 +515,7 @@ export function WorkoutApp({
                   <button onClick={() => updateSession((target) => { target.restTimer = { startedAt: null, elapsedSeconds: 0, running: false }; })}>歸零</button>
                 </> : null}
               </div>
-              {editable ? <button className="newSession" onClick={addSession}>＋ 另一場訓練</button> : <span className="workoutLock">◇</span>}
+              {editable ? <button className="newSession" onClick={addSession}>＋ 另一場訓練</button> : <span className="workoutLock">僅供查看</span>}</div>
             </div>
           )}
         </section>
@@ -534,12 +527,13 @@ export function WorkoutApp({
 
 function numberValue(value: string) { return value === "" ? null : Number(value); }
 
-function StrengthEditor({ exercise, editable, stats, update, confirmSet, expanded, toggle }: {
+function StrengthEditor({ exercise, editable, stats, previous, update, confirmSet, expanded, toggle }: {
   expanded: boolean;
   toggle(): void;
   exercise: StrengthExercise;
   editable: boolean;
   stats?: StrengthStats;
+  previous?: PreviousStrengthExercise;
   update(change: (exercise: WorkoutExercise) => void): void;
   confirmSet(id: string, nextId?: string): void;
 }) {
@@ -547,7 +541,8 @@ function StrengthEditor({ exercise, editable, stats, update, confirmSet, expande
     <summary onClick={(event) => { event.preventDefault(); toggle(); }}><strong>{exercise.name || "未命名動作"}</strong><small>{exercise.sets.filter((set) => set.confirmed).length}/{exercise.sets.length} 組完成 · {expanded ? "收起" : "展開"}</small></summary>
     <div className="exerciseForm">
     <input className="exerciseName" value={exercise.name} disabled={!editable} onChange={(event) => update((item) => { item.name = event.target.value; })} />
-    {stats ? <div className="strengthStats"><span>{stats.sessions} 次</span>{stats.maximumWeight !== null ? <span>max {stats.maximumWeight} kg</span> : null}{stats.estimatedOneRepMax !== null ? <span>e1RM {stats.estimatedOneRepMax}</span> : null}{stats.recentNote ? <small>{stats.recentNote}</small> : null}</div> : null}
+    {previous ? <div className="previousStrength"><strong>上次 {previous.journalDate.slice(5).replace("-", ".")}</strong><span>{previous.sets.map((set) => `${set.weightKg ?? "—"}×${set.reps ?? "—"}`).join(" · ")}</span></div> : <div className="previousStrength empty">尚無上次紀錄</div>}
+    {stats ? <details className="strengthStats"><summary>歷史統計</summary><span>{stats.sessions} 次</span>{stats.maximumWeight !== null ? <span>最高 {stats.maximumWeight} kg</span> : null}{stats.estimatedOneRepMax !== null ? <span>e1RM {stats.estimatedOneRepMax}</span> : null}{stats.recentNote ? <small>{stats.recentNote}</small> : null}</details> : null}
     <div className="setLabels"><span>#</span><span>kg</span><span>次</span><span>RPE</span><span>RIR</span><span /></div>
     {exercise.sets.map((set, index) => { const nextIndex = nextWorkoutSetIndex(index, exercise.sets.length); const nextId = nextIndex === null ? undefined : exercise.sets[nextIndex]?.id; return <div className="workoutSetBlock" key={set.id} data-workout-set={set.id}><div className={set.confirmed ? "workoutSet confirmed" : "workoutSet ghost"}>
       <span>{index + 1}</span>

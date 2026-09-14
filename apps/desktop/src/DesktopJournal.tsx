@@ -26,6 +26,7 @@ import {
   readLocalState,
   refreshBlankDraftDate,
   shiftJournalDate,
+  startNewForDate,
   textEditDiff,
   type JournalAreaKey,
   type JournalAreas,
@@ -587,6 +588,17 @@ export function DesktopJournal() {
     prefetchDateNeighborhood(next);
   }
 
+  function addRecordForSelectedDate() {
+    const current = stateRef.current;
+    const hadContent = hasJournalContent(current.active.areas);
+    const next = startNewForDate(current, selectedDate, new Date(), idFactory);
+    commitState(next);
+    setConfirmation("none");
+    setView("quick");
+    if (hadContent) void syncNow();
+    window.setTimeout(() => focusArea(0), 0);
+  }
+
   function handleListKey(event: ReactKeyboardEvent<HTMLElement>) {
     if (event.key === "Escape") {
       event.preventDefault();
@@ -994,6 +1006,7 @@ export function DesktopJournal() {
           />
         </label>
         <button aria-label="後一天" onClick={() => shiftDate(1)}>›</button>
+        <button aria-label={`新增 ${dateLabel(selectedDate)} 的紀錄`} onClick={addRecordForSelectedDate}>＋</button>
       </nav>
       <section className="recordStream">
         {listEntries.map((record, index) => (

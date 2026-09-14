@@ -83,6 +83,45 @@ export type WorkoutRecord = {
   lockedAt: string | null;
 };
 
+export type PreviousStrengthExercise = {
+  journalDate: string;
+  exercise: StrengthExercise;
+  sets: WorkoutSet[];
+};
+
+export function findPreviousStrengthExercise(
+  records: WorkoutRecord[],
+  name: string,
+  libraryEntryId: string | undefined,
+  beforeDate: string,
+): PreviousStrengthExercise | undefined {
+  const normalizedName = name.trim().toLocaleLowerCase();
+  const sorted = records
+    .filter((record) => record.journalDate < beforeDate)
+    .slice()
+    .sort((left, right) => right.journalDate.localeCompare(left.journalDate));
+
+  for (const record of sorted) {
+    for (const session of record.payload.sessions.slice().reverse()) {
+      const exercise = session.exercises.find((candidate): candidate is StrengthExercise => {
+        if (candidate.kind !== "strength") return false;
+        if (libraryEntryId && candidate.libraryEntryId) return candidate.libraryEntryId === libraryEntryId;
+        return candidate.name.trim().toLocaleLowerCase() === normalizedName;
+      });
+      if (!exercise) continue;
+      const completedSets = exercise.sets.filter((set) => set.confirmed && (set.weightKg !== null || set.reps !== null));
+      if (completedSets.length > 0) return { journalDate: record.journalDate, exercise, sets: completedSets };
+    }
+  }
+  return undefined;
+}
+
+export function summarizeWorkoutRecord(record: WorkoutRecord): { sessionNames: string[]; exerciseNames: string[] } {
+  const sessionNames = record.payload.sessions.map((session, index) => session.name.trim() || `第 ${index + 1} 場訓練`);
+  const exerciseNames = [...new Set(record.payload.sessions.flatMap((session) => session.exercises.map((exercise) => exercise.name.trim())).filter(Boolean))];
+  return { sessionNames, exerciseNames };
+}
+
 export type WorkoutSaveInput = {
   journalDate: string;
   payload: WorkoutPayload;

@@ -21,6 +21,7 @@ import {
   readLocalState,
   rebaseDraftForCreate,
   rotateConflictReservation,
+  startNewForDate as startNewForDateState,
   forkLockedDraft,
   type JournalLocalState,
   type LocalJournalDraft,
@@ -755,11 +756,7 @@ export function createJournalSyncController(
     clearDebounce();
     activeReady = false;
     const hadContent = hasJournalContent(state.active.areas);
-    const next = hadContent ? finishActive(state, now(), idFactory) : state;
-    publish({
-      ...next,
-      active: { ...next.active, journalDate },
-    });
+    publish(startNewForDateState(state, journalDate, now(), idFactory));
     if (hadContent) void drainQueue();
     return true;
   }

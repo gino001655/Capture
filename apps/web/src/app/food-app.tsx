@@ -69,17 +69,13 @@ export function FoodApp({ active, onSelectModule }: { active: boolean; onSelectM
       <span>飲食紀錄</span><small role="status">{issue ? "尚未同步" : local.pending ? "儲存中" : "已儲存"}</small>
     </header>
     <section className="foodBody">
-      {local.conflict ? <div className="specialConflict" role="alert"><span>另一台裝置也更新了這天的飲食，請選擇要保留的內容。</span><button type="button" onClick={useCloudVersion}>使用另一台的內容</button><button type="button" onClick={keepLocalVersion}>保留這台的內容</button></div> : null}
-      {libraryConflict ? <div className="specialConflict" role="alert"><span>常用食物在另一台裝置有更新，請選擇要保留的版本。</span><button type="button" onClick={() => resolveLibraryConflict("cloud")}>使用另一台的內容</button><button type="button" onClick={() => resolveLibraryConflict("local")}>保留這台的內容</button></div> : null}
-      <div className="foodTotals"><span><strong>{totals.calories}</strong> kcal</span><span>蛋白質 <strong>{totals.protein}</strong> g</span></div>
-      <details className="recorderOptions"><summary>每日目標</summary><div className="foodFields">
-        <label>熱量 kcal<input type="number" inputMode="decimal" value={local.payload.calorieTarget ?? ""} disabled={!editable} onChange={(event) => mutate((payload) => { payload.calorieTarget = number(event.target.value); })} /></label>
-        <label>蛋白質 g<input type="number" inputMode="decimal" value={local.payload.proteinTargetGrams ?? ""} disabled={!editable} onChange={(event) => mutate((payload) => { payload.proteinTargetGrams = number(event.target.value); })} /></label>
-      </div></details>
-      <div className="recorderActions"><button disabled={!editable} onClick={() => add()}>＋ 新增食物</button><button onClick={() => setLibraryOpen((open) => !open)}>{libraryOpen ? "收起管理" : "管理常用食物"}</button></div>
-      <details className="recorderOptions"><summary>從常用食物新增</summary><p className="recorderHint">點選後帶入一筆紀錄，可再調整份量與營養。</p><div className="recentFoods">{recent.map((entry) => <button key={entry.id} disabled={!editable} onClick={() => add(entry)}>＋ {entry.name}</button>)}{recent.length === 0 ? <span>完成第一筆紀錄後，會出現在這裡。</span> : null}</div></details>
-      {libraryOpen ? <div className="foodLibrary">{library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}><input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const name = event.target.value.trim(); if (name) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name } : item) }); }} /><button disabled={index === 0} onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↑</button><button disabled={index === entries.length - 1} onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>↓</button><button onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "◇" : "—"}</button>{!used(entry) ? <button onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>×</button> : <span />}</div>)}</div> : null}
-      <div className="recorderListHeading">當日紀錄 <small>{local.payload.entries.length} 筆{!editable ? " · 僅供查看" : ""}</small></div>
+      {local.conflict ? <div className="specialConflict" role="alert"><span>雲端已有較新的飲食內容，請選擇要保留的版本。</span><button type="button" onClick={useCloudVersion}>保留雲端內容</button><button type="button" onClick={keepLocalVersion}>保留這台內容</button></div> : null}
+      {libraryConflict ? <div className="specialConflict" role="alert"><span>雲端已有較新的常用食物，請選擇要保留的版本。</span><button type="button" onClick={() => resolveLibraryConflict("cloud")}>保留雲端內容</button><button type="button" onClick={() => resolveLibraryConflict("local")}>保留這台內容</button></div> : null}
+      <section className="recorderSection foodSummarySection"><h2>今日總計</h2><div className="foodTotals"><span><strong>{totals.calories}</strong> kcal</span><span>蛋白質 <strong>{totals.protein}</strong> g</span></div></section>
+      <section className="recorderSection foodAddSection"><h2>新增飲食</h2><div className="recorderActions"><button className="primaryRecorderAction" disabled={!editable} onClick={() => add()}>＋ 新增食物</button></div>
+        <details className="recorderOptions"><summary>從常用食物快速新增</summary><p className="recorderHint">點選後帶入一筆紀錄，可再調整份量與營養。</p><div className="recentFoods">{recent.map((entry) => <button key={entry.id} disabled={!editable} onClick={() => add(entry)}>＋ {entry.name}</button>)}{recent.length === 0 ? <span>完成第一筆紀錄後，會出現在這裡。</span> : null}</div></details>
+      </section>
+      <section className="recorderSection foodRecordsSection"><h2>今日紀錄 <small>{local.payload.entries.length} 筆{!editable ? " · 僅供查看" : ""}</small></h2>
       {local.payload.entries.length === 0 ? <p className="recorderHint">還沒有紀錄。按「新增食物」開始。</p> : null}
       {local.payload.entries.map((entry) => {
         const expanded = expandedId === entry.id || !entry.name.trim();
@@ -101,7 +97,16 @@ export function FoodApp({ active, onSelectModule }: { active: boolean; onSelectM
           </div> : null}
         </article>;
       })}
-      <p className="recorderHint">內容自動儲存。營養數值為這筆食物的總量。</p>
+      </section>
+      <details className="recorderSection foodSettingsSection"><summary><strong>目標與常用食物管理</strong><small>平常不需要調整</small></summary>
+        <h3>每日目標</h3><div className="foodFields">
+          <label>熱量 kcal<input type="number" inputMode="decimal" value={local.payload.calorieTarget ?? ""} disabled={!editable} onChange={(event) => mutate((payload) => { payload.calorieTarget = number(event.target.value); })} /></label>
+          <label>蛋白質 g<input type="number" inputMode="decimal" value={local.payload.proteinTargetGrams ?? ""} disabled={!editable} onChange={(event) => mutate((payload) => { payload.proteinTargetGrams = number(event.target.value); })} /></label>
+        </div>
+        <button className="manageLibraryButton" onClick={() => setLibraryOpen((open) => !open)}>{libraryOpen ? "收起常用食物" : "管理常用食物"}</button>
+        {libraryOpen ? <div className="foodLibrary">{library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}><input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const name = event.target.value.trim(); if (name) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name } : item) }); }} /><button disabled={index === 0} onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>上移</button><button disabled={index === entries.length - 1} onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>下移</button><button onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "取消封存" : "封存"}</button>{!used(entry) ? <button onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>刪除</button> : <span />}</div>)}</div> : null}
+      </details>
+      <p className="recorderHint recorderAutosaveHint">內容會自動儲存。營養數值為這筆食物的總量。</p>
     </section>
     <ModuleRail active="food" onSelect={onSelectModule} />
   </main>;

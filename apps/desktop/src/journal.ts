@@ -29,6 +29,7 @@ export {
   finishActive,
   readLocalState,
   shiftJournalDate,
+  startNewForDate,
   toTaipeiJournalDate,
   type JournalLocalState,
   type LocalJournalDraft,
