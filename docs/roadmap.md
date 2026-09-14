@@ -119,10 +119,10 @@ Success criteria:
 
 ## 9. Journal product slice
 
-Status: Implemented in source; production smoke test pending.
+Status: Implemented in source; AI-enabled production smoke test pending.
 
 - Cloud claims undelivered idle records by Taipei Journal date after the 04:00 boundary.
-- Desktop appends deterministic Markdown to that date's Heptabase Journal with MD5 conflict protection.
+- Desktop optionally uses Codex to organize deterministic Markdown, then appends with MD5 conflict protection.
 - Success locks delivered records; failure persists an error and retries after 15 minutes.
 - Worker Status exposes pending, processing, and failed dates with an immediate manual retry.
 
@@ -140,7 +140,12 @@ Status: Initial extension boundary complete.
 
 ## 11. English to Anki
 
-Status: Planned. The daily English source document and history are implemented.
+Status: Implemented in source; real Anki verification pending.
+
+- Eligible past documents use a Desktop-only lease and durable retry state.
+- Codex creates validated atomic cards; the `none` provider accepts `front :: back` paragraphs.
+- AnkiConnect creates the configured deck and `English_AI` model, deduplicates with stable source and normalized-target tags, stores receipts, and syncs.
+- Automation is off by default and only accepts a loopback AnkiConnect endpoint.
 
 ## 12. Workout and running recorder
 
@@ -160,4 +165,4 @@ Status: Core vertical slice implemented.
 
 - Production-verify the new offline shell, reconnect retry, cross-device conflict resolution, and bounded queue draining.
 - Resolve the Heptabase append acknowledgement crash window if its API gains a stable idempotency mechanism.
-- Add AI organization only after the deterministic delivery path is production-verified.
+- Production-verify optional Journal AI and English-to-Anki with disposable source data before enabling routine automation.

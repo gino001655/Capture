@@ -221,7 +221,7 @@ Full Journal ↔ Quick Capture ↔ English ↔ Workout ↔ Food ↔ Future modes
 - At Taipei midnight, the old document locks and a blank current-day editor opens. Edits made offline before midnight remain eligible for delayed synchronization after midnight.
 - A compact date/history entry will show only dates containing text and a short preview. Full-text search is deferred but must remain possible.
 - There is no delete-document or clear-document command. The current day's text can be edited or erased normally; erasing all content removes the empty Cloud document.
-- The Desktop worker will eventually forward locked, unprocessed English documents to an Anki-card workflow. AI organization, export, and Anki synchronization are later milestones.
+- The Desktop worker can optionally forward eligible past English documents through Codex (or `front :: back` deterministic parsing) to deduplicated `English_AI` notes in AnkiConnect, persist an item-level receipt, then synchronize Anki.
 - No user-facing version history or device-provenance interface is required.
 
 ### Workout — Confirmed; core implemented
@@ -336,7 +336,7 @@ Example shape:
 - Raw Capture records remain the source data. AI-produced Markdown is derived delivery content, so an AI transformation cannot erase the original capture.
 - The target output keeps the approved divider and nested Bullet List structure and may apply the richer classification behavior illustrated by the supplied `journal(1).md` reference.
 - The manual per-record classification confirmation required by the old GPT workflow is not carried into the automated product flow; eliminating that repeated interaction is part of the product's purpose.
-- Exact model selection, prompt design, classification review controls, and AI-failure fallback belong to a later AI milestone. They do not block the first Journal vertical slice.
+- The v0.6 implementation uses the Worker Status model selection and a fixed fact-preserving prompt. AI organization is opt-in, has no per-record confirmation step, and a failure leaves the raw source queued for retry rather than delivering a substitute.
 
 ## Shortcut feasibility notes
 

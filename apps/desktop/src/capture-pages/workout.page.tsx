@@ -10,9 +10,10 @@ import type {
   WorkoutSession,
   WorkoutSet,
 } from "../../../web/src/lib/workout-record";
-import { elapsedWorkoutTimer, emptyWorkoutPayload, findPreviousStrengthExercise, nextWorkoutSetIndex } from "../../../web/src/lib/workout-record";
+import { elapsedWorkoutTimer, emptyWorkoutPayload, findPreviousStrengthExercise, nextWorkoutSetIndex, summarizeWorkoutSessions } from "../../../web/src/lib/workout-record";
 import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../../../web/src/lib/workout-library";
 import { emptyWorkoutLibrary } from "../../../web/src/lib/workout-library";
+import { handleDirectionalFocus } from "../keyboard-navigation";
 import type { CapturePageDefinition, CapturePageProps } from "./types";
 
 const CACHE_KEY = "capture.desktop.workout.v1";
@@ -46,6 +47,8 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   const [libraryRevision, setLibraryRevision] = useState<number | null>(null);
   const [libraryConflict, setLibraryConflict] = useState<{ local: WorkoutLibraryPayload; cloud: WorkoutLibraryRecord | null } | null>(null);
   const [libraryOpen, setLibraryOpen] = useState(false);
+  const [expandedExerciseId, setExpandedExerciseId] = useState<string | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [issue, setIssue] = useState(false);
   const [now, setNow] = useState(Date.now());
@@ -55,7 +58,7 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   const syncDebounceRef = useRef<ReturnType<typeof createDateBoundDebounce<LocalWorkout>> | null>(null);
   syncDebounceRef.current ??= createDateBoundDebounce<LocalWorkout>({ delayMs: 800, schedule: (callback, delayMs) => window.setTimeout(callback, delayMs), cancel: (handle) => window.clearTimeout(handle as number) });
   const editable = date === today;
-  const activeSession = local.payload.sessions.find((item) => item.completedAt === null) ?? local.payload.sessions[local.payload.sessions.length - 1] ?? null;
+  const activeSession = local.payload.sessions.find((item) => item.id === selectedSessionId) ?? local.payload.sessions.find((item) => item.completedAt === null) ?? local.payload.sessions[local.payload.sessions.length - 1] ?? null;
 
   const publish = useCallback((targetDate: string, next: LocalWorkout) => {
     if (targetDate === dateRef.current) {
@@ -89,11 +92,12 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
     syncDebounceRef.current?.queue(targetDate, next, sync);
   }, [publish, sync]);
 
-  const load = useCallback(async (targetDate: string) => {
+  const load = useCallback(async (targetDate: string, targetSessionId: string | null = null) => {
     targetDate = clampRecorderDate(targetDate, todayRef.current);
-    dateRef.current = targetDate; setDate(targetDate);
+    dateRef.current = targetDate; setDate(targetDate); setSelectedSessionId(targetSessionId); setExpandedExerciseId(null);
     const cached = readCache()[targetDate];
-    if (cached?.pending) { publish(targetDate, cached); void sync(targetDate, cached); return; }
+    publish(targetDate, cached ?? { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() });
+    if (cached?.pending) { void sync(targetDate, cached); return; }
     try {
       const record = await invoke<WorkoutRecord | null>("get_workout_record", { journalDate: targetDate });
       publish(targetDate, record
@@ -118,7 +122,7 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
       const row = event.target.closest<HTMLElement>(".desktopSet");
       if (!row) return;
       event.preventDefault();
-      const exercise = row.closest("article");
+      const exercise = row.closest(".desktopWorkoutExercise");
       const rows = [...(exercise ?? event.currentTarget).querySelectorAll<HTMLElement>(".desktopSet")];
       const index = rows.indexOf(row);
       row.querySelector<HTMLButtonElement>("button")?.click();
@@ -126,16 +130,27 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
       if (nextIndex !== null) queueMicrotask(() => rows[nextIndex]?.querySelector<HTMLInputElement>("input")?.focus());
       return;
     }
-    if (!event.ctrlKey) return;
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+    if (event.ctrlKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
       event.preventDefault(); requestModeChange(event.key === "ArrowLeft" ? -1 : 1);
+      return;
     }
+    if (event.key === "Escape") {
+      if (libraryOpen) { event.preventDefault(); event.stopPropagation(); setLibraryOpen(false); }
+      else if (expandedExerciseId) { event.preventDefault(); event.stopPropagation(); setExpandedExerciseId(null); }
+      return;
+    }
+    handleDirectionalFocus(event, event.currentTarget);
   }
   function useCloudVersion() { const cloud = localRef.current.conflict?.cloud; const next: LocalWorkout = cloud ? { payload: cloud.payload, revision: cloud.revision, pending: false, clientUpdatedAt: cloud.updatedAt } : { payload: emptyWorkoutPayload(), revision: null, pending: false, clientUpdatedAt: new Date().toISOString() }; publish(date, next); setIssue(false); }
   function keepLocalVersion() { const current = localRef.current; if (!current.conflict) return; const { conflict, ...withoutConflict } = current; const next = rebaseConflictCandidate(withoutConflict, conflict.cloud?.revision ?? null); publish(date, next); setIssue(false); void sync(date, next); }
   function updateSession(change: (value: WorkoutSession) => void) {
     if (!activeSession) return;
     mutate((payload) => { const target = payload.sessions.find((item) => item.id === activeSession.id); if (target) change(target); });
+  }
+  function addSession() {
+    const session = newSession();
+    setSelectedSessionId(session.id);
+    mutate((payload) => payload.sessions.push(session));
   }
   function stats(exerciseName: string, libraryEntryId?: string) {
     let sessions = 0; let maximumWeight: number | null = null; let estimatedOneRepMax: number | null = null; let recentNote = "";
@@ -161,7 +176,9 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
       void saveLibrary({ ...library, entries: [...library.entries, entry] });
     }
     const old = findPreviousStrengthExercise(history, exerciseName, entry.id, date);
-    updateSession((target) => target.exercises.push({ id: crypto.randomUUID(), kind: "strength", libraryEntryId: entry.id, name: exerciseName, note: "", sets: old?.sets.length ? old.sets.map(blankSet) : [blankSet()] }));
+    const id = crypto.randomUUID();
+    updateSession((target) => target.exercises.push({ id, kind: "strength", libraryEntryId: entry.id, name: exerciseName, note: "", sets: old?.sets.length ? old.sets.map(blankSet) : [blankSet()] }));
+    setExpandedExerciseId(id);
     setName("");
   }
   async function saveLibrary(next: WorkoutLibraryPayload, expectedRevision = libraryRevision) {
@@ -183,11 +200,13 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   }
   function addRun() {
     if (!activeSession) return;
+    const id = crypto.randomUUID();
     updateSession((target) => target.exercises.push({
-      id: crypto.randomUUID(), kind: "running", name: "跑步", note: "",
+      id, kind: "running", name: "跑步", note: "",
       distanceKm: null, durationSeconds: null, averageHeartRate: null, maximumHeartRate: null,
       temperatureC: null, elevationGainM: null, rpe: null, segments: [],
     }));
+    setExpandedExerciseId(id);
   }
   function updateExercise(id: string, change: (exercise: WorkoutExercise) => void) {
     updateSession((target) => { const exercise = target.exercises.find((item) => item.id === id); if (exercise) change(exercise); });
@@ -197,14 +216,20 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
   }
 
   return <main className="captureExtensionPage desktopWorkout viewEnter" aria-label="重訓紀錄" tabIndex={0} onKeyDown={keyNavigation}>
-    <header><button onClick={() => setLibraryOpen((open) => !open)}>{libraryOpen ? "返回" : "管理"}</button><label>{date.slice(5).replace("-", ".")}<input type="date" max={today} value={date} onChange={(event) => void load(event.target.value)} /></label><span>{issue ? "!" : local.pending ? "·" : ""}</span></header>
+    <header><button onClick={() => setLibraryOpen((open) => !open)}>{libraryOpen ? "返回" : "歷史"}</button><label>{date.slice(5).replace("-", ".")}<input type="date" max={today} value={date} onChange={(event) => void load(event.target.value)} /></label><span>{issue ? "!" : local.pending ? "·" : ""}</span></header>
     {local.conflict ? <div className="specialConflict" role="alert"><span>雲端已有較新的訓練內容</span><button type="button" onClick={useCloudVersion}>保留雲端</button><button type="button" onClick={keepLocalVersion}>保留這台</button></div> : null}
     {libraryConflict ? <div className="specialConflict" role="alert"><span>雲端已有較新的常用動作</span><button type="button" onClick={() => resolveLibraryConflict("cloud")}>保留雲端</button><button type="button" onClick={() => resolveLibraryConflict("local")}>保留這台</button></div> : null}
     <section>
-      {libraryOpen ? <div className="desktopLibrary"><h2>管理常用動作</h2><p>調整排序，或封存暫時不用的動作。</p>{library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}><input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const nextName = event.target.value.trim(); if (nextName) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name: nextName } : item) }); }} /><button disabled={index === 0} onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>上移</button><button disabled={index === entries.length - 1} onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>下移</button><button onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "取消封存" : "封存"}</button>{!libraryEntryUsed(entry) ? <button onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>刪除</button> : <span />}</div>)}</div> : !activeSession ? <div className="desktopWorkoutEmpty"><button disabled={!editable} onClick={() => mutate((payload) => payload.sessions.push(newSession()))}>＋ 開始訓練</button>{recent.map((item) => <small key={item}>{item}</small>)}</div> : <>
+      {libraryOpen ? <div className="desktopWorkoutHistory">
+        <details className="desktopLibrary"><summary>管理常用動作</summary><p>調整排序，或封存暫時不用的動作。</p>{library.entries.slice().sort((left, right) => left.order - right.order).map((entry, index, entries) => <div key={entry.id} className={entry.archived ? "archived" : ""}><input value={entry.name} onChange={(event) => setLibrary((current) => ({ ...current, entries: current.entries.map((item) => item.id === entry.id ? { ...item, name: event.target.value } : item) }))} onBlur={(event) => { const nextName = event.target.value.trim(); if (nextName) void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, name: nextName } : item) }); }} /><button disabled={index === 0} onClick={() => { const next = entries.slice(); [next[index - 1], next[index]] = [next[index], next[index - 1]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>上移</button><button disabled={index === entries.length - 1} onClick={() => { const next = entries.slice(); [next[index], next[index + 1]] = [next[index + 1], next[index]]; void saveLibrary({ ...library, entries: next.map((item, order) => ({ ...item, order })) }); }}>下移</button><button onClick={() => void saveLibrary({ ...library, entries: library.entries.map((item) => item.id === entry.id ? { ...item, archived: !item.archived } : item) })}>{entry.archived ? "取消封存" : "封存"}</button>{!libraryEntryUsed(entry) ? <button onClick={() => void saveLibrary({ ...library, entries: library.entries.filter((item) => item.id !== entry.id).map((item, order) => ({ ...item, order })) })}>刪除</button> : <span />}</div>)}</details>
+        <h2 className="desktopSectionTitle">訓練歷史</h2>
+        {history.map((record) => <section className="desktopWorkoutHistoryDay" key={record.id}><time>{record.journalDate.slice(5).replace("-", ".")}</time><div>{summarizeWorkoutSessions(record).map((session) => <button key={session.id} onClick={() => { setLibraryOpen(false); void load(record.journalDate, session.id); }}><strong>{session.name}</strong><small>{session.exerciseNames.length ? session.exerciseNames.join(" · ") : "尚無動作"}</small></button>)}</div></section>)}
+        {history.length === 0 ? <p className="desktopEmptyHint">還沒有訓練歷史。</p> : null}
+      </div> : !activeSession ? <div className="desktopWorkoutEmpty"><button disabled={!editable} onClick={addSession}>＋ 開始訓練</button>{recent.map((item) => <small key={item}>{item}</small>)}</div> : <>
         <h2 className="desktopSectionTitle">本次訓練</h2><div className="desktopWorkoutSession"><input placeholder="訓練名稱" value={activeSession.name} disabled={!editable} onChange={(event) => updateSession((target) => { target.name = event.target.value; })} /><button disabled={!editable} onClick={() => updateSession((target) => { target.completedAt = target.completedAt ? null : new Date().toISOString(); })}>{activeSession.completedAt ? "繼續" : "完成"}</button></div>
         <h2 className="desktopSectionTitle">已加入的動作 <small>{activeSession.exercises.length}</small></h2>
-        {activeSession.exercises.map((exercise: WorkoutExercise) => exercise.kind === "strength" ? <article key={exercise.id}>
+        {activeSession.exercises.map((exercise: WorkoutExercise) => exercise.kind === "strength" ? <details className="desktopWorkoutExercise" open={expandedExerciseId === exercise.id} key={exercise.id}>
+          <summary onClick={(event) => { event.preventDefault(); setExpandedExerciseId(expandedExerciseId === exercise.id ? null : exercise.id); }}><strong>{exercise.name || "未命名動作"}</strong><small>{exercise.sets.filter((set) => set.confirmed).length}/{exercise.sets.length} 組完成 · {expandedExerciseId === exercise.id ? "收起" : "展開"}</small></summary>
           <input className="desktopExerciseName" value={exercise.name} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { target.name = event.target.value; })} />
           {(() => { const old = findPreviousStrengthExercise(history, exercise.name, exercise.libraryEntryId, date); return old ? <div className="desktopPreviousStrength"><strong>上次 {old.journalDate.slice(5).replace("-", ".")}</strong><span>{old.sets.map((set) => `${set.weightKg ?? "—"}×${set.reps ?? "—"}`).join(" · ")}</span></div> : <div className="desktopPreviousStrength empty">尚無上次紀錄</div>; })()}
           {(() => { const summary = stats(exercise.name, exercise.libraryEntryId); return summary.sessions ? <details className="desktopStrengthStats"><summary>歷史統計</summary><span>{summary.sessions} 次</span>{summary.maximumWeight !== null ? <span>最高 {summary.maximumWeight} kg</span> : null}{summary.estimatedOneRepMax !== null ? <span>e1RM {summary.estimatedOneRepMax}</span> : null}{summary.recentNote ? <small>{summary.recentNote}</small> : null}</details> : null; })()}
@@ -212,17 +237,18 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
           {exercise.sets.map((set: WorkoutSet, index: number) => <div key={set.id} className="desktopSetBlock"><div className={set.confirmed ? "desktopSet" : "desktopSet ghost"}><span>{index + 1}</span>{(["weightKg", "reps", "rpe", "rir"] as const).map((key) => <input key={key} type="number" value={set[key] ?? ""} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index][key] = numeric(event.target.value); })} />)}<button disabled={!editable} onClick={() => updateSession((target) => { const item = target.exercises.find((candidate) => candidate.id === exercise.id); if (item?.kind === "strength") item.sets[index].confirmed = true; target.restTimer = { startedAt: new Date().toISOString(), elapsedSeconds: 0, running: true }; })}>{set.confirmed ? "✓" : "○"}</button></div><div className="desktopSetMeta"><select value={set.type} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index].type = event.target.value as WorkoutSet["type"]; })}><option value="working">正式</option><option value="warmup">熱身</option><option value="drop">遞減</option><option value="failure">力竭</option></select><input placeholder="這組註記" value={set.note} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets[index].note = event.target.value; })} /></div></div>)}
           {editable ? <button className="desktopAddSet" onClick={() => updateExercise(exercise.id, (target) => { if (target.kind === "strength") target.sets.push(blankSet(target.sets[target.sets.length - 1])); })}>＋ set</button> : null}
           <textarea placeholder="動作註記" value={exercise.note} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { target.note = event.target.value; })} />
-        </article> : <article className="desktopRun" key={exercise.id}>
+        </details> : <details className="desktopWorkoutExercise desktopRun" open={expandedExerciseId === exercise.id} key={exercise.id}>
+          <summary onClick={(event) => { event.preventDefault(); setExpandedExerciseId(expandedExerciseId === exercise.id ? null : exercise.id); }}><strong>{exercise.name || "跑步"}</strong><small>{expandedExerciseId === exercise.id ? "收起" : "展開"}</small></summary>
           <div><input className="desktopExerciseName" value={exercise.name} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { target.name = event.target.value; })} /><strong>{exercise.distanceKm && exercise.durationSeconds ? `${Math.floor(exercise.durationSeconds / exercise.distanceKm / 60)}:${String(Math.round(exercise.durationSeconds / exercise.distanceKm) % 60).padStart(2, "0")}/km` : "—"}</strong></div>
           <div className="desktopRunGrid">{([
             ["distanceKm", "km", 1], ["durationSeconds", "分鐘", 60], ["averageHeartRate", "平均心率", 1], ["maximumHeartRate", "最高心率", 1], ["temperatureC", "°C", 1], ["elevationGainM", "爬升 m", 1], ["rpe", "RPE", 1],
           ] as const).map(([key, label, multiplier]) => <label key={key}>{label}<input type="number" value={exercise[key] === null ? "" : Number(exercise[key]) / multiplier} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "running") target[key] = event.target.value === "" ? null : Number(event.target.value) * multiplier; })} /></label>)}</div>
           <div className="desktopSegments">{exercise.segments.map((segment: RunningSegment, index: number) => <div key={segment.id}><span>{index + 1}</span><input aria-label="分段公里" type="number" placeholder="km" value={segment.distanceKm ?? ""} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "running") target.segments[index].distanceKm = numeric(event.target.value); })} /><input aria-label="分段分鐘" type="number" placeholder="分鐘" value={segment.durationSeconds === null ? "" : segment.durationSeconds / 60} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { if (target.kind === "running") target.segments[index].durationSeconds = event.target.value === "" ? null : Number(event.target.value) * 60; })} /></div>)}{editable ? <button onClick={() => updateExercise(exercise.id, (target) => { if (target.kind === "running") target.segments.push({ id: crypto.randomUUID(), distanceKm: null, durationSeconds: null }); })}>＋ 分段</button> : null}</div>
           <textarea placeholder="跑步註記" value={exercise.note} disabled={!editable} onChange={(event) => updateExercise(exercise.id, (target) => { target.note = event.target.value; })} />
-        </article>)}
+        </details>)}
         {editable ? <><h2 className="desktopSectionTitle">新增動作</h2><div className="desktopAddExercise"><input placeholder="輸入動作名稱" value={name} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") addExercise(name); }} /><button onClick={() => addExercise(name)}>新增</button><button onClick={addRun}>跑步</button><div>{recent.map((item) => <button key={item} onClick={() => addExercise(item)}>{item}</button>)}</div></div></> : null}
         <h2 className="desktopSectionTitle">訓練備註</h2><textarea className="desktopSessionNote" placeholder="記下今天的感受或調整" value={activeSession.note} disabled={!editable} onChange={(event) => updateSession((target) => { target.note = event.target.value; })} />
-        <div className="desktopFloatingActions"><div className="desktopRest"><small>休息</small><strong>{Math.floor(elapsed(activeSession) / 60)}:{String(elapsed(activeSession) % 60).padStart(2, "0")}</strong>{editable ? <><button onClick={() => updateSession((target) => { const seconds = elapsed(target); target.restTimer = target.restTimer.running ? { startedAt: null, elapsedSeconds: seconds, running: false } : { startedAt: new Date().toISOString(), elapsedSeconds: seconds, running: true }; })}>{activeSession.restTimer.running ? "暫停" : "開始"}</button><button onClick={() => updateSession((target) => { target.restTimer = { startedAt: null, elapsedSeconds: 0, running: false }; })}>歸零</button></> : null}</div>{editable ? <button className="desktopNewSession" onClick={() => mutate((payload) => payload.sessions.push(newSession()))}>＋ 另一場訓練</button> : null}</div>
+        <div className="desktopFloatingActions"><div className="desktopRest"><small>休息</small><strong>{Math.floor(elapsed(activeSession) / 60)}:{String(elapsed(activeSession) % 60).padStart(2, "0")}</strong>{editable ? <><button onClick={() => updateSession((target) => { const seconds = elapsed(target); target.restTimer = target.restTimer.running ? { startedAt: null, elapsedSeconds: seconds, running: false } : { startedAt: new Date().toISOString(), elapsedSeconds: seconds, running: true }; })}>{activeSession.restTimer.running ? "暫停" : "開始"}</button><button onClick={() => updateSession((target) => { target.restTimer = { startedAt: null, elapsedSeconds: 0, running: false }; })}>歸零</button></> : null}</div>{editable ? <button className="desktopNewSession" onClick={addSession}>＋ 另一場訓練</button> : null}</div>
       </>}
     </section>
   </main>;

@@ -50,6 +50,12 @@ export function createEnglishHandler(
       );
     }
     const outcome = await store.saveEnglish(validation.value);
+    if (outcome.kind === "locked") {
+      return Response.json(
+        { error: { code: "RECORD_LOCKED", message: "This English document is already processing or processed." }, record: outcome.record },
+        { status: 409 },
+      );
+    }
     if (outcome.kind === "conflict") {
       return Response.json(
         { error: { code: "REVISION_CONFLICT", message: "The English document changed on another device." }, record: outcome.record },

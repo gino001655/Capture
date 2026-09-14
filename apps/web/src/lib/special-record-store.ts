@@ -10,6 +10,16 @@ type SpecialUpdate = {
   $inc?: { revision: number };
 };
 
+export type EnglishDeliveryReport =
+  | { outcome: "completed"; result: string }
+  | { outcome: "failed"; error: string; result?: string };
+
+export type EnglishDeliveryStatus = {
+  pending: number;
+  processing: number;
+  failed: number;
+};
+
 export type SpecialRecordCollection = {
   createIndex(keys: Record<string, 1 | -1>, options: { name: string }): Promise<string>;
   updateOne(
@@ -32,10 +42,30 @@ export type SpecialRecordCollection = {
 export type EnglishSaveOutcome =
   | { kind: "created" | "updated"; record: EnglishRecord }
   | { kind: "deleted"; record: null }
-  | { kind: "conflict"; record: EnglishRecord | null };
+  | { kind: "conflict"; record: EnglishRecord | null }
+  | { kind: "locked"; record: EnglishRecord };
 
 const COLLECTION_NAME = "specialRecords";
+const PROCESSING_RETRY_MS = 15 * 60 * 1_000;
+const PROCESSING_LEASE_MS = 30 * 60 * 1_000;
 let indexPromise: Promise<void> | undefined;
+
+function appendProcessingReceipt(existing: string | null | undefined, incoming: string): string {
+  if (!existing) return incoming;
+  const decode = (value: string): unknown => {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return value;
+    }
+  };
+  const prior = decode(existing);
+  const attempts = typeof prior === "object" && prior !== null && "attempts" in prior
+    && Array.isArray((prior as { attempts: unknown[] }).attempts)
+    ? (prior as { attempts: unknown[] }).attempts
+    : [prior];
+  return JSON.stringify({ attempts: [...attempts, decode(incoming)] });
+}
 
 function toRecord(document: SpecialRecordDocument): EnglishRecord {
   const { _id, ...record } = document;
@@ -87,6 +117,10 @@ export class SpecialRecordStore {
     const id = `english:${input.journalDate}`;
     const current = await collection.findOne({ _id: id, moduleId: "english" });
 
+    if (current !== null && current.processingState !== "pending") {
+      return { kind: "locked", record: toRecord(current) };
+    }
+
     if (!input.text.trim()) {
       if (current === null) return { kind: "deleted", record: null };
       if (input.expectedRevision !== current.revision) {
@@ -134,6 +168,12 @@ export class SpecialRecordStore {
           payload: { schemaVersion: 1, text: input.text },
           processingState: "pending",
           updatedAt: timestamp,
+          processingAttemptId: null,
+          processingClaimedAt: null,
+          processingError: null,
+          nextProcessingAttemptAt: null,
+          processedAt: null,
+          processingResult: null,
         },
         $inc: { revision: 1 },
       },
@@ -142,6 +182,129 @@ export class SpecialRecordStore {
     return updated
       ? { kind: "updated", record: toRecord(updated) }
       : { kind: "conflict", record: await this.getEnglish(input.journalDate) };
+  }
+
+  async claimEnglish(boundaryDate: string): Promise<EnglishRecord | null> {
+    const collection = await this.getCollection();
+    const now = this.now();
+    const nowIso = now.toISOString();
+    const staleBefore = new Date(now.getTime() - PROCESSING_LEASE_MS).toISOString();
+    const records = (await this.listEnglish()).sort((left, right) =>
+      left.journalDate.localeCompare(right.journalDate));
+
+    for (const record of records) {
+      if (record.journalDate >= boundaryDate) continue;
+      const claimable = record.processingState === "pending"
+        || (record.processingState === "failed"
+          && (!record.nextProcessingAttemptAt || record.nextProcessingAttemptAt <= nowIso))
+        || (record.processingState === "processing"
+          && (!record.processingClaimedAt || record.processingClaimedAt <= staleBefore));
+      if (!claimable) continue;
+
+      const attemptId = crypto.randomUUID();
+      const claimed = await collection.findOneAndUpdate(
+        {
+          _id: record.id,
+          moduleId: "english",
+          revision: record.revision,
+          processingState: record.processingState,
+          ...(record.processingAttemptId
+            ? { processingAttemptId: record.processingAttemptId }
+            : {}),
+        },
+        {
+          $set: {
+            processingState: "processing",
+            processingAttemptId: attemptId,
+            processingClaimedAt: nowIso,
+            processingAttempts: (record.processingAttempts ?? 0) + 1,
+            processingError: null,
+            nextProcessingAttemptAt: null,
+          },
+          $inc: { revision: 1 },
+        },
+        { returnDocument: "after" },
+      );
+      if (claimed) return toRecord(claimed);
+    }
+    return null;
+  }
+
+  async reportEnglish(
+    attemptId: string,
+    report: EnglishDeliveryReport,
+  ): Promise<EnglishRecord | null> {
+    const collection = await this.getCollection();
+    const current = await collection.findOne({
+      moduleId: "english",
+      processingState: "processing",
+      processingAttemptId: attemptId,
+    });
+    if (!current) return null;
+    const timestamp = this.now().toISOString();
+    const set = report.outcome === "completed"
+      ? {
+          processingState: "processed" as const,
+          processingResult: appendProcessingReceipt(current.processingResult, report.result),
+          processingError: null,
+          nextProcessingAttemptAt: null,
+          processedAt: timestamp,
+          lockedAt: timestamp,
+        }
+      : {
+          processingState: "failed" as const,
+          processingResult: report.result
+            ? appendProcessingReceipt(current.processingResult, report.result)
+            : current.processingResult ?? null,
+          processingError: report.error.slice(0, 2_000),
+          nextProcessingAttemptAt: new Date(this.now().getTime() + PROCESSING_RETRY_MS).toISOString(),
+          processedAt: null,
+          lockedAt: null,
+        };
+    const updated = await collection.findOneAndUpdate(
+      {
+        _id: current._id,
+        moduleId: "english",
+        revision: current.revision,
+        processingState: "processing",
+        processingAttemptId: attemptId,
+      },
+      { $set: set, $inc: { revision: 1 } },
+      { returnDocument: "after" },
+    );
+    return updated ? toRecord(updated) : null;
+  }
+
+  async retryFailedEnglish(): Promise<number> {
+    const collection = await this.getCollection();
+    const failed = (await this.listEnglish()).filter((record) => record.processingState === "failed");
+    let updatedCount = 0;
+    for (const record of failed) {
+      const updated = await collection.findOneAndUpdate(
+        {
+          _id: record.id,
+          moduleId: "english",
+          revision: record.revision,
+          processingState: "failed",
+        },
+        {
+          $set: { processingState: "pending", nextProcessingAttemptAt: null },
+          $inc: { revision: 1 },
+        },
+        { returnDocument: "after" },
+      );
+      if (updated) updatedCount += 1;
+    }
+    return updatedCount;
+  }
+
+  async englishDeliveryStatus(boundaryDate: string): Promise<EnglishDeliveryStatus> {
+    const records = (await this.listEnglish()).filter((record) => record.journalDate < boundaryDate);
+    return {
+      pending: records.filter((record) => record.processingState === "pending").length,
+      processing: records.filter((record) => record.processingState === "processing").length,
+      failed: records.filter((record) => record.processingState === "failed").length,
+    };
   }
 }
 

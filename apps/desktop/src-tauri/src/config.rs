@@ -13,6 +13,14 @@ pub(crate) struct WorkerConfig {
     pub(crate) ai_provider: String,
     #[serde(default)]
     pub(crate) ai_model: Option<String>,
+    #[serde(default)]
+    pub(crate) journal_ai_enabled: bool,
+    #[serde(default)]
+    pub(crate) anki_enabled: bool,
+    #[serde(default = "default_anki_connect_url")]
+    pub(crate) anki_connect_url: String,
+    #[serde(default = "default_anki_deck")]
+    pub(crate) anki_deck: String,
 }
 
 impl WorkerConfig {
@@ -21,10 +29,18 @@ impl WorkerConfig {
             let api_base_url = env::var("CAPTURE_API_BASE_URL")
                 .unwrap_or_else(|_| DEFAULT_API_BASE_URL.to_owned());
 
-            return Self::new(api_base_url, device_token)?.with_ai(
-                env::var("CAPTURE_AI_PROVIDER").unwrap_or_else(|_| default_ai_provider()),
-                env::var("CAPTURE_AI_MODEL").ok(),
-            );
+            return Self::new(api_base_url, device_token)?
+                .with_ai(
+                    env::var("CAPTURE_AI_PROVIDER").unwrap_or_else(|_| default_ai_provider()),
+                    env::var("CAPTURE_AI_MODEL").ok(),
+                )?
+                .with_automation(
+                    env_flag("CAPTURE_JOURNAL_AI_ENABLED"),
+                    env_flag("CAPTURE_ANKI_ENABLED"),
+                    env::var("CAPTURE_ANKI_CONNECT_URL")
+                        .unwrap_or_else(|_| default_anki_connect_url()),
+                    env::var("CAPTURE_ANKI_DECK").unwrap_or_else(|_| default_anki_deck()),
+                );
         }
 
         let path = settings_path(app)?;
@@ -36,7 +52,13 @@ impl WorkerConfig {
             .map_err(|error| format!("Desktop connection settings are invalid: {error}"))?;
 
         Self::new(stored.api_base_url, stored.device_token)?
-            .with_ai(stored.ai_provider, stored.ai_model)
+            .with_ai(stored.ai_provider, stored.ai_model)?
+            .with_automation(
+                stored.journal_ai_enabled,
+                stored.anki_enabled,
+                stored.anki_connect_url,
+                stored.anki_deck,
+            )
     }
 
     pub(crate) fn save(
@@ -53,8 +75,19 @@ impl WorkerConfig {
         app: &AppHandle,
         ai_provider: String,
         ai_model: Option<String>,
+        journal_ai_enabled: bool,
+        anki_enabled: bool,
+        anki_connect_url: String,
+        anki_deck: String,
     ) -> Result<Self, String> {
-        let config = Self::load(app)?.with_ai(ai_provider, ai_model)?;
+        let config = Self::load(app)?
+            .with_ai(ai_provider, ai_model)?
+            .with_automation(
+                journal_ai_enabled,
+                anki_enabled,
+                anki_connect_url,
+                anki_deck,
+            )?;
         Self::persist(app, &config)?;
         Ok(config)
     }
@@ -87,6 +120,10 @@ impl WorkerConfig {
                 },
                 ai_provider: config.ai_provider,
                 ai_model: config.ai_model,
+                journal_ai_enabled: config.journal_ai_enabled,
+                anki_enabled: config.anki_enabled,
+                anki_connect_url: config.anki_connect_url,
+                anki_deck: config.anki_deck,
             },
             Err(_) => ConnectionSettingsSummary {
                 api_base_url: env::var("CAPTURE_API_BASE_URL")
@@ -96,6 +133,11 @@ impl WorkerConfig {
                 ai_provider: env::var("CAPTURE_AI_PROVIDER")
                     .unwrap_or_else(|_| default_ai_provider()),
                 ai_model: env::var("CAPTURE_AI_MODEL").ok(),
+                journal_ai_enabled: env_flag("CAPTURE_JOURNAL_AI_ENABLED"),
+                anki_enabled: env_flag("CAPTURE_ANKI_ENABLED"),
+                anki_connect_url: env::var("CAPTURE_ANKI_CONNECT_URL")
+                    .unwrap_or_else(|_| default_anki_connect_url()),
+                anki_deck: env::var("CAPTURE_ANKI_DECK").unwrap_or_else(|_| default_anki_deck()),
             },
         }
     }
@@ -117,6 +159,10 @@ impl WorkerConfig {
             device_token,
             ai_provider: default_ai_provider(),
             ai_model: None,
+            journal_ai_enabled: false,
+            anki_enabled: false,
+            anki_connect_url: default_anki_connect_url(),
+            anki_deck: default_anki_deck(),
         })
     }
 
@@ -129,6 +175,38 @@ impl WorkerConfig {
         self.ai_model = model
             .map(|model| model.trim().to_owned())
             .filter(|model| !model.is_empty());
+        Ok(self)
+    }
+
+    fn with_automation(
+        mut self,
+        journal_ai_enabled: bool,
+        anki_enabled: bool,
+        anki_connect_url: String,
+        anki_deck: String,
+    ) -> Result<Self, String> {
+        let anki_connect_url = anki_connect_url.trim().trim_end_matches('/').to_owned();
+        if anki_connect_url != "http://127.0.0.1:8765"
+            && anki_connect_url != "http://localhost:8765"
+        {
+            return Err(
+                "AnkiConnect URL must be http://127.0.0.1:8765 or http://localhost:8765."
+                    .to_owned(),
+            );
+        }
+        let anki_deck = match anki_deck.trim() {
+            // Pre-release migration: the approved workflow uses the top-level
+            // English deck rather than the old Capture::English default.
+            "Capture::English" => default_anki_deck(),
+            value => value.to_owned(),
+        };
+        if anki_deck.is_empty() || anki_deck.len() > 200 {
+            return Err("Anki deck must contain 1 to 200 characters.".to_owned());
+        }
+        self.journal_ai_enabled = journal_ai_enabled;
+        self.anki_enabled = anki_enabled;
+        self.anki_connect_url = anki_connect_url;
+        self.anki_deck = anki_deck;
         Ok(self)
     }
 
@@ -145,10 +223,31 @@ pub(crate) struct ConnectionSettingsSummary {
     pub(crate) source: String,
     pub(crate) ai_provider: String,
     pub(crate) ai_model: Option<String>,
+    pub(crate) journal_ai_enabled: bool,
+    pub(crate) anki_enabled: bool,
+    pub(crate) anki_connect_url: String,
+    pub(crate) anki_deck: String,
 }
 
 fn default_ai_provider() -> String {
     "codex-cli".to_owned()
+}
+
+fn default_anki_connect_url() -> String {
+    "http://127.0.0.1:8765".to_owned()
+}
+
+fn default_anki_deck() -> String {
+    "English".to_owned()
+}
+
+fn env_flag(name: &str) -> bool {
+    env::var(name).is_ok_and(|value| {
+        matches!(
+            value.trim().to_ascii_lowercase().as_str(),
+            "1" | "true" | "yes" | "on"
+        )
+    })
 }
 
 fn settings_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -226,5 +325,33 @@ mod tests {
         assert_eq!(config.ai_provider, "codex-cli");
         assert_eq!(config.ai_model.as_deref(), Some("gpt-example"));
         assert!(config.with_ai("arbitrary-shell".to_owned(), None).is_err());
+    }
+
+    #[test]
+    fn automation_settings_are_opt_in_and_restrict_anki_to_loopback() {
+        let config = WorkerConfig::new(
+            "https://capture.example.com".to_owned(),
+            "a-secure-device-token-that-is-long-enough".to_owned(),
+        )
+        .expect("configuration")
+        .with_automation(
+            true,
+            true,
+            " http://localhost:8765/ ".to_owned(),
+            " Capture::English ".to_owned(),
+        )
+        .expect("automation settings");
+        assert!(config.journal_ai_enabled);
+        assert!(config.anki_enabled);
+        assert_eq!(config.anki_connect_url, "http://localhost:8765");
+        assert_eq!(config.anki_deck, "English");
+        assert!(config
+            .with_automation(
+                false,
+                true,
+                "https://example.com".to_owned(),
+                "Deck".to_owned()
+            )
+            .is_err());
     }
 }

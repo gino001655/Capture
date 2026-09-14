@@ -795,10 +795,6 @@ export function DesktopJournal() {
         event.preventDefault();
         event.stopPropagation();
         requestModeChange(event.key === "ArrowLeft" ? -1 : 1);
-      } else if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        showQuickCapture();
       }
     };
     window.addEventListener("keydown", handle, true);
@@ -815,7 +811,11 @@ export function DesktopJournal() {
     if (definition) {
       const Page = definition.Component;
       return (
-        <div className="desktopJournal viewEnter" style={themeStyle} key={`special-${definition.id}`}>
+        <div className="desktopJournal viewEnter" style={themeStyle} key={`special-${definition.id}`} onKeyDown={(event) => {
+          if (event.key !== "Escape" || event.defaultPrevented) return;
+          event.preventDefault();
+          showQuickCapture();
+        }}>
           <div className="dragStrip" data-tauri-drag-region />
           <Page requestModeChange={requestModeChange} />
         </div>

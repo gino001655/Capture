@@ -13,10 +13,17 @@ export type EnglishRecord = {
   journalDate: string;
   payload: EnglishPayload;
   revision: number;
-  processingState: "pending" | "processed";
+  processingState: "pending" | "processing" | "processed" | "failed";
   createdAt: string;
   updatedAt: string;
   lockedAt: string | null;
+  processingAttemptId?: string | null;
+  processingClaimedAt?: string | null;
+  processingAttempts?: number;
+  processingError?: string | null;
+  nextProcessingAttemptAt?: string | null;
+  processedAt?: string | null;
+  processingResult?: string | null;
 };
 
 export type EnglishSaveInput = {

@@ -3,6 +3,7 @@ import { rebaseConflictCandidate } from "@capture/recorder-kit";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 
 import type { CapturePageDefinition, CapturePageProps } from "./types";
+import { handleDirectionalFocus } from "../keyboard-navigation";
 
 const STORAGE_KEY = "capture.desktop.english.v1";
 const AUTOSAVE_DELAY_MS = 800;
@@ -170,14 +171,23 @@ function EnglishPage({ requestModeChange }: CapturePageProps) {
   }, [selectedDate, sync, today]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLElement>) {
-    if (!event.ctrlKey) return;
-    if (event.key === "ArrowLeft") {
+    if (event.ctrlKey && event.key === "ArrowLeft") {
       event.preventDefault();
       requestModeChange(-1);
-    } else if (event.key === "ArrowRight") {
+      return;
+    } else if (event.ctrlKey && event.key === "ArrowRight") {
       event.preventDefault();
       requestModeChange(1);
+      return;
     }
+    if (event.key === "Escape" && historyOpen) {
+      event.preventDefault();
+      event.stopPropagation();
+      setHistoryOpen(false);
+      window.setTimeout(() => editorRef.current?.focus(), 0);
+      return;
+    }
+    handleDirectionalFocus(event, event.currentTarget);
   }
 
   const editable = selectedDate === today;

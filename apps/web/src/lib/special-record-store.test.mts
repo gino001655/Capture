@@ -94,3 +94,58 @@ test("English history lists only stored documents newest first", async () => {
   await store.saveEnglish({ ...base, text: "newer", expectedRevision: null });
   assert.deepEqual((await store.listEnglish()).map((record) => record.payload.text), ["newer", "older"]);
 });
+
+test("English delivery claims oldest first, locks it, and completes once", async () => {
+  const { store } = harness();
+  await store.saveEnglish({ ...base, journalDate: "2026-09-04", text: "older", expectedRevision: null });
+  await store.saveEnglish({ ...base, journalDate: "2026-09-05", text: "newer", expectedRevision: null });
+
+  const claimed = await store.claimEnglish("2026-09-06");
+  assert.equal(claimed?.journalDate, "2026-09-04");
+  assert.equal(claimed?.processingState, "processing");
+  assert.ok(claimed?.processingAttemptId);
+
+  const locked = await store.saveEnglish({
+    ...base,
+    journalDate: "2026-09-04",
+    text: "late overwrite",
+    expectedRevision: claimed!.revision,
+  });
+  assert.equal(locked.kind, "locked");
+
+  const completed = await store.reportEnglish(claimed!.processingAttemptId!, {
+    outcome: "completed",
+    result: "Anki added 2",
+  });
+  assert.equal(completed?.processingState, "processed");
+  assert.ok(completed?.lockedAt);
+  assert.equal(await store.reportEnglish(claimed!.processingAttemptId!, {
+    outcome: "completed",
+    result: "duplicate",
+  }), null);
+});
+
+test("failed English delivery waits until manual retry", async () => {
+  const { store } = harness();
+  await store.saveEnglish({ ...base, journalDate: "2026-09-05", text: "notes", expectedRevision: null });
+  const claimed = await store.claimEnglish("2026-09-06");
+  const failed = await store.reportEnglish(claimed!.processingAttemptId!, {
+    outcome: "failed",
+    error: "Anki is closed",
+    result: "partial receipt",
+  });
+  assert.equal(failed?.processingState, "failed");
+  assert.equal(failed?.processingResult, "partial receipt");
+  assert.equal((await store.englishDeliveryStatus("2026-09-06")).failed, 1);
+  assert.equal(await store.claimEnglish("2026-09-06"), null);
+  assert.equal(await store.retryFailedEnglish(), 1);
+  const retried = await store.claimEnglish("2026-09-06");
+  assert.equal(retried?.processingState, "processing");
+  const completed = await store.reportEnglish(retried!.processingAttemptId!, {
+    outcome: "completed",
+    result: "final receipt",
+  });
+  assert.deepEqual(JSON.parse(completed!.processingResult!), {
+    attempts: ["partial receipt", "final receipt"],
+  });
+});

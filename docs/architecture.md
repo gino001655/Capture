@@ -2,7 +2,7 @@
 
 ## Status
 
-The Web/API and English recorder are deployed to Vercel. Google authentication, MongoDB Atlas persistence, and the legacy capture-to-Codex-to-Heptabase note path have been production-verified. Journal delivery plus the Workout/Running and Food recorders are implemented and automatically verified in source, but their latest production and cross-device smoke tests remain pending.
+The Web/API and English recorder are deployed to Vercel. Google authentication, MongoDB Atlas persistence, and the legacy capture-to-Codex-to-Heptabase note path have been production-verified. Optional Journal AI, English-to-Anki, and the latest Workout/Running and Food changes are implemented and automatically verified in source, but their external-service and cross-device smoke tests remain pending.
 
 ## System context
 
@@ -16,7 +16,7 @@ flowchart LR
     C --> D
     D --> H["Heptabase CLI / Desktop"]
     H --> D
-    D -. "later" .-> K["Anki"]
+    D --> K["AnkiConnect / Anki"]
 ```
 
 ## Component responsibilities
@@ -49,6 +49,8 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - `POST /api/journal-deliveries` to make failed batches immediately retryable;
 - `GET /api/special-records/english?date=YYYY-MM-DD` to read one daily English document;
 - `PUT /api/special-records/english` to create, revise, or remove an empty daily English document with optimistic revision checking.
+- `GET/POST /api/english-deliveries` to inspect or retry the English-to-Anki queue;
+- `POST /api/english-deliveries/claim` and `PATCH /api/english-deliveries/{attemptId}` for Desktop-only leased processing;
 - `GET/PUT /api/special-records/workout` for versioned daily strength/running sessions;
 - `GET/PUT /api/special-records/workout/library` for the revision-safe exercise library;
 - `GET/PUT /api/special-records/food` for daily food entries and nutrition targets;
@@ -85,7 +87,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Cloud writes carry an expected revision so a stale device cannot silently overwrite newer text. The UI preserves a conflicting local pending copy and offers explicit Cloud/local resolution.
 - The UI permits editing only the current Taipei date and rolls forward after Taipei midnight. A delayed offline write for an earlier date is accepted only when its recorded client edit timestamp belongs to that same date; this preserves pre-midnight work without opening normal past-date editing.
 - Past records are read-only in both clients. Empty English text deletes the current empty daily document, while incomplete Food rows remain local until they have enough data to sync.
-- The current slice includes the content-date history list, offline shell, reconnect retry, and explicit conflict resolution. It does not include background-sync API reliance, AI/Anki transformation, or completed cross-device manual verification.
+- The current slice includes content-date history, offline shell, reconnect retry, explicit conflict resolution, and optional English-to-Anki processing. It does not rely on browser background-sync APIs; real-device and real-Anki verification remain manual.
 
 ### Processor
 
@@ -96,11 +98,12 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Return the created Heptabase card ID and title as the Cloud processing result.
 - Not own persistence, retry policy, or authoritative job state.
 - Report legacy processor failures to Cloud, delay ordinary retry for 15 minutes, expose immediate manual retry, and recover abandoned 30-minute processing leases.
-- For Journal batches, deterministically convert the six Capture areas to the approved Markdown bullets and dividers without AI rewriting.
+- For Journal batches, first deterministically convert the six Capture areas to approved Markdown. When explicitly enabled, Codex may reorganize the derived Markdown while preserving record order and facts; failures keep the source queued.
 - Read the target Heptabase Journal, then append with its `contentMd5` as a conflict precondition. Cloud records are marked delivered and locked only after the append succeeds.
 - A failed Journal append is reported to Cloud and becomes retryable after 15 minutes or immediately through `Check now`.
 - The legacy note processor selects `codex-cli` or deterministic `none` through `AiProvider::write_markdown`; an optional Codex model is configuration rather than hard-coded policy.
 - Prepared Markdown crosses the `CaptureDestination` port; the current Heptabase CLI implementation can be replaced without changing recorder UI, worker scheduling, or Cloud persistence.
+- Past English documents use the same lease/retry lifecycle. Codex produces validated structured-note JSON, then the AnkiConnect adapter creates the configured deck and `English_AI` model, skips stable source/target-tagged notes, records item-level outcomes, and syncs.
 
 ## Desktop polling behavior
 
@@ -111,7 +114,7 @@ The worker checks for work:
 3. every five minutes while running and online;
 4. when the user selects a manual check action.
 
-All triggers share one check operation and avoid overlapping polls. The application runs the five-minute schedule in Rust so hiding the WebView window does not stop the worker. One wake drains up to 20 Journal or legacy items, stops on the first error, and reports an aggregate result. Journal and legacy failures have durable retry state. OS suspend pauses the Rust timer naturally; an expired interval and the browser online event resume checking without a Windows-only power-event dependency.
+All triggers share one check operation and avoid overlapping polls. The application runs the five-minute schedule in Rust so hiding the WebView window does not stop the worker. One wake drains up to 20 Journal, English, or legacy items, stops on the first error, and reports an aggregate result. Each processed source has durable retry state. OS suspend pauses the Rust timer naturally; an expired interval and the browser online event resume checking without a Windows-only power-event dependency.
 
 ## Trust boundaries
 

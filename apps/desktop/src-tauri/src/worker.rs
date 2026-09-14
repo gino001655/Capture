@@ -14,8 +14,25 @@ struct JournalDeliveryClaimResponse {
 }
 
 #[derive(Deserialize)]
+struct EnglishDeliveryClaimResponse {
+    delivery: Option<EnglishDelivery>,
+}
+
+#[derive(Deserialize)]
 struct JournalDeliveryStatusResponse {
     delivery: JournalDeliveryStatus,
+}
+
+#[derive(Deserialize)]
+struct EnglishDeliveryStatusResponse {
+    delivery: EnglishDeliveryStatus,
+}
+
+#[derive(Clone, Deserialize, Serialize)]
+pub(crate) struct EnglishDeliveryStatus {
+    pub(crate) pending: usize,
+    pub(crate) processing: usize,
+    pub(crate) failed: usize,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -44,6 +61,19 @@ struct JournalDelivery {
     attempt_id: String,
     journal_date: String,
     records: Vec<processor::JournalRecordForDelivery>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct EnglishDelivery {
+    journal_date: String,
+    payload: EnglishDeliveryPayload,
+    processing_attempt_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct EnglishDeliveryPayload {
+    text: String,
 }
 
 #[derive(Deserialize)]
@@ -144,8 +174,17 @@ async fn check_one(config: &WorkerConfig) -> Result<WorkerReport, String> {
         let journal_date = delivery.journal_date.clone();
         let record_count = delivery.records.len();
         let process_date = journal_date.clone();
+        let ai_provider = config.ai_provider.clone();
+        let ai_model = config.ai_model.clone();
+        let journal_ai_enabled = config.journal_ai_enabled;
         let process_result = tauri::async_runtime::spawn_blocking(move || {
-            processor::process_journal_delivery(&process_date, &delivery.records)
+            processor::process_journal_delivery(
+                &process_date,
+                &delivery.records,
+                &ai_provider,
+                ai_model.as_deref(),
+                journal_ai_enabled,
+            )
         })
         .await
         .map_err(|error| format!("The Journal processor stopped unexpectedly: {error}"))?;
@@ -194,6 +233,56 @@ async fn check_one(config: &WorkerConfig) -> Result<WorkerReport, String> {
                     )),
                 };
             }
+        }
+    }
+
+    if config.anki_enabled {
+        let english_response = client
+            .post(config.endpoint("api/english-deliveries/claim"))
+            .bearer_auth(&config.device_token)
+            .send()
+            .await
+            .map_err(|error| format!("Could not reach the English delivery API: {error}"))?
+            .error_for_status()
+            .map_err(|error| format!("English delivery claim failed: {error}"))?
+            .json::<EnglishDeliveryClaimResponse>()
+            .await
+            .map_err(|error| format!("English delivery claim response was invalid: {error}"))?;
+
+        if let Some(delivery) = english_response.delivery {
+            let attempt_id = delivery.processing_attempt_id.clone().ok_or_else(|| {
+                "English delivery claim did not contain an attempt id.".to_owned()
+            })?;
+            let journal_date = delivery.journal_date.clone();
+            let ai_provider = config.ai_provider.clone();
+            let ai_model = config.ai_model.clone();
+            let anki_connect_url = config.anki_connect_url.clone();
+            let anki_deck = config.anki_deck.clone();
+            let process_result = tauri::async_runtime::spawn_blocking(move || {
+                processor::process_english_delivery(
+                    &delivery.journal_date,
+                    &delivery.payload.text,
+                    &ai_provider,
+                    ai_model.as_deref(),
+                    &anki_connect_url,
+                    &anki_deck,
+                )
+            })
+            .await
+            .map_err(|error| format!("The English processor stopped unexpectedly: {error}"))?;
+
+            report_english_delivery(&client, config, &attempt_id, &process_result).await?;
+            return match process_result {
+                Ok(result) => Ok(WorkerReport {
+                    outcome: "processed",
+                    message: format!("Sent English {journal_date} to Anki: {result}"),
+                    job_id: Some(attempt_id),
+                }),
+                Err(error) => Err(format!(
+                    "English delivery for {journal_date} failed and will retry: {}",
+                    error.message
+                )),
+            };
         }
     }
 
@@ -298,6 +387,36 @@ async fn report_journal_delivery(
     Ok(())
 }
 
+async fn report_english_delivery(
+    client: &Client,
+    config: &WorkerConfig,
+    attempt_id: &str,
+    result: &Result<String, processor::EnglishProcessingFailure>,
+) -> Result<(), String> {
+    let report = match result {
+        Ok(value) => JournalDeliveryReportRequest {
+            outcome: "completed",
+            result: Some(value),
+            error: None,
+        },
+        Err(failure) => JournalDeliveryReportRequest {
+            outcome: "failed",
+            result: failure.receipt.as_deref(),
+            error: Some(&failure.message),
+        },
+    };
+    client
+        .patch(config.endpoint(&format!("api/english-deliveries/{attempt_id}")))
+        .bearer_auth(&config.device_token)
+        .json(&report)
+        .send()
+        .await
+        .map_err(|error| format!("Could not report the English delivery: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("English delivery report failed: {error}"))?;
+    Ok(())
+}
+
 pub(crate) async fn get_journal_delivery_status(
     config: &WorkerConfig,
 ) -> Result<JournalDeliveryStatus, String> {
@@ -313,6 +432,30 @@ pub(crate) async fn get_journal_delivery_status(
         .await
         .map(|response| response.delivery)
         .map_err(|error| format!("Journal delivery status response was invalid: {error}"))
+}
+
+pub(crate) async fn get_english_delivery_status(
+    config: &WorkerConfig,
+) -> Result<EnglishDeliveryStatus, String> {
+    if !config.anki_enabled {
+        return Ok(EnglishDeliveryStatus {
+            pending: 0,
+            processing: 0,
+            failed: 0,
+        });
+    }
+    Client::new()
+        .get(config.endpoint("api/english-deliveries"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the English delivery API: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("English delivery status failed: {error}"))?
+        .json::<EnglishDeliveryStatusResponse>()
+        .await
+        .map(|response| response.delivery)
+        .map_err(|error| format!("English delivery status response was invalid: {error}"))
 }
 
 pub(crate) async fn retry_failed_journal_deliveries(config: &WorkerConfig) -> Result<(), String> {
@@ -333,6 +476,16 @@ pub(crate) async fn retry_failed_journal_deliveries(config: &WorkerConfig) -> Re
         .map_err(|error| format!("Could not reach the legacy retry API: {error}"))?
         .error_for_status()
         .map_err(|error| format!("Legacy retry request failed: {error}"))?;
+    if config.anki_enabled {
+        client
+            .post(config.endpoint("api/english-deliveries"))
+            .bearer_auth(&config.device_token)
+            .send()
+            .await
+            .map_err(|error| format!("Could not reach the English retry API: {error}"))?
+            .error_for_status()
+            .map_err(|error| format!("English retry request failed: {error}"))?;
+    }
     Ok(())
 }
 
@@ -370,11 +523,13 @@ mod tests {
         assert!(report.get("result").is_none());
     }
 
-
     #[test]
     fn drain_continues_only_for_processed_work_below_the_bound() {
         assert_eq!(drain_action(1, "processed"), DrainAction::Continue);
         assert_eq!(drain_action(1, "idle"), DrainAction::Stop);
-        assert_eq!(drain_action(MAX_WORK_PER_CHECK, "processed"), DrainAction::Stop);
+        assert_eq!(
+            drain_action(MAX_WORK_PER_CHECK, "processed"),
+            DrainAction::Stop
+        );
     }
 }

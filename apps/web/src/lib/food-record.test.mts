@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { emptyFoodPayload, hasCustomFoodTargets, isFoodPayloadReady, validateFoodSaveRequest } from "./food-record.ts";
+import { emptyFoodPayload, foodEntryIsExpanded, hasCustomFoodTargets, isFoodPayloadReady, validateFoodSaveRequest } from "./food-record.ts";
 
 const valid = { journalDate: "2026-09-08", expectedRevision: null, clientUpdatedAt: "2026-09-08T03:00:00Z", payload: { ...emptyFoodPayload(), entries: [{ id: "11111111-1111-4111-8111-111111111111", name: "雞胸肉", quantity: 1, unit: "份", calories: 220, proteinGrams: 40, note: "", occurredAt: "2026-09-08T02:00:00Z" }] } };
 test("accepts complete food entries and rejects blank names", () => {
@@ -17,4 +17,9 @@ test("food targets are custom only when they differ from the blank-day defaults"
   assert.equal(hasCustomFoodTargets(emptyFoodPayload()), false);
   assert.equal(hasCustomFoodTargets({ ...emptyFoodPayload(), calorieTarget: 2300 }), true);
   assert.equal(hasCustomFoodTargets({ ...emptyFoodPayload(), proteinTargetGrams: null }), true);
+});
+
+test("an unnamed food row follows explicit expansion state instead of collapsing after its first character", () => {
+  assert.equal(foodEntryIsExpanded("food-1", "food-1"), true);
+  assert.equal(foodEntryIsExpanded(null, "food-1"), false);
 });

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FoodEntry, FoodPayload, FoodRecord } from "../lib/food-record";
-import { emptyFoodPayload, isFoodPayloadReady } from "../lib/food-record";
+import { emptyFoodPayload, foodEntryIsExpanded, isFoodPayloadReady } from "../lib/food-record";
 import { toTaipeiDate } from "../lib/special-record";
 import { shiftJournalDate } from "./journal-session";
 import { ModuleRail, type CaptureModule } from "./module-rail";
@@ -78,7 +78,7 @@ export function FoodApp({ active, onSelectModule }: { active: boolean; onSelectM
       <section className="recorderSection foodRecordsSection"><h2>今日紀錄 <small>{local.payload.entries.length} 筆{!editable ? " · 僅供查看" : ""}</small></h2>
       {local.payload.entries.length === 0 ? <p className="recorderHint">還沒有紀錄。按「新增食物」開始。</p> : null}
       {local.payload.entries.map((entry) => {
-        const expanded = expandedId === entry.id || !entry.name.trim();
+        const expanded = foodEntryIsExpanded(expandedId, entry.id);
         return <article key={entry.id} className="foodEntry">
           <button className="recorderSummary" aria-expanded={expanded} onClick={() => setExpandedId(expanded ? null : entry.id)}>
             <span><strong>{entry.name || "新增食物"}</strong><small>{entry.quantity ?? "—"} {entry.unit} · {entry.calories ?? "—"} kcal · 蛋白質 {entry.proteinGrams ?? "—"} g</small></span>

@@ -122,6 +122,18 @@ export function summarizeWorkoutRecord(record: WorkoutRecord): { sessionNames: s
   return { sessionNames, exerciseNames };
 }
 
+export function summarizeWorkoutSessions(record: WorkoutRecord): Array<{
+  id: string;
+  name: string;
+  exerciseNames: string[];
+}> {
+  return record.payload.sessions.map((session, index) => ({
+    id: session.id,
+    name: session.name.trim() || `第 ${index + 1} 場訓練`,
+    exerciseNames: session.exercises.map((exercise) => exercise.name.trim()).filter(Boolean),
+  }));
+}
+
 export type WorkoutSaveInput = {
   journalDate: string;
   payload: WorkoutPayload;

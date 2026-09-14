@@ -1,121 +1,132 @@
-# Personal Capture System
+# Capture
 
-A personal system for quickly capturing information, processing it on a Windows computer, and routing the results to useful destinations.
+Capture is a quiet, local-first inbox for thoughts, English learning, workouts, and food. It is designed to open quickly on a phone or Windows, save without a submit ceremony, synchronize across devices, and hand completed material to the right destination later.
 
-This repository is also a software-engineering learning project. Development proceeds in small, testable vertical slices so that each architectural boundary is understood before the system is expanded.
+This is an early, single-user project. The interface is intentionally compact; integrations are explicit opt-ins and raw Cloud records are retained when processing fails.
 
-Licensed under the [MIT License](LICENSE). See [Contributing](CONTRIBUTING.md) before proposing a new recorder or integration.
+## What works
 
-## Current status
+| Area | Web | Windows | Cloud sync | External processing |
+| --- | --- | --- | --- | --- |
+| Journal / Quick Capture | Yes | Yes | MongoDB | Optional Codex → dated Heptabase Journal |
+| English | Yes | Yes | MongoDB | Optional Codex → AnkiConnect |
+| Workout / running | Yes | Yes | MongoDB | Not implemented |
+| Food | Yes | Yes | MongoDB | Not implemented |
 
-The authenticated Web/API is deployed to Vercel and verified with MongoDB Atlas and the Desktop worker. The Web is installable as an iPhone Home Screen app, and the Windows worker has a tray menu, background polling, quick-capture and status-window shortcuts, optional autostart, and a release installer.
+The Web app is mobile-first and installable from Safari as a Home Screen app. The Tauri Desktop app supplies global shortcuts, keyboard-only workflows, a tray worker, background polling, and an NSIS installer.
 
-The legacy text-to-note pipeline is connected and production-verified. The newer Journal pipeline batches idle records by Taipei date after the 04:00 boundary, appends deterministic Markdown to the corresponding Heptabase Journal, locks successful records, and keeps failed work in a visible retry queue. That newer path is implemented and automatically verified but still needs one production smoke test.
+The established Journal path has been exercised against MongoDB and Heptabase. The current English queue is implemented and automatically tested; its production deployment and a real queued English-to-Anki run remain release checks. A direct disposable Anki test card has been verified manually.
 
-English, Workout/Running, and Food are synchronized special recorders shared by Web and Desktop. Workout includes copied prior sets, a rest timer, history metrics, running segments, and a synced exercise library. Food includes daily calorie/protein totals and a synced reusable-food library. Cross-device manual verification and the English-to-Anki processor remain pending.
+## Core flow
+
+```text
+Phone or Windows
+  → authenticated Web API
+  → MongoDB queue
+  → private Windows worker
+  → optional local Codex CLI
+  → Heptabase CLI or AnkiConnect
+  → completion recorded in MongoDB
+```
+
+- Journal records are grouped by their selected Taipei date and become eligible after the 04:00 cutoff. Successful records are locked in Capture; later corrections belong in Heptabase.
+- Past English documents can become Anki notes. Workout and Food currently remain synchronized Capture data.
+- A processing failure never silently discards the source. Failed work remains retryable.
+- The browser and Cloud never receive Heptabase or Anki credentials; those adapters run on the user's Windows computer.
+
+See [Setup and integrations](docs/setup-and-integrations.md) for the complete local, deployment, Codex, Heptabase, and Anki setup.
+
+## Repository
+
+```text
+apps/web                 Next.js mobile UI, authentication, API, MongoDB stores
+apps/desktop             React + Tauri Windows UI and local worker
+packages/recorder-kit    shared recorder catalog and navigation contract
+scripts                  recorder generator
+docs                     architecture, product decisions, setup, and releases
+```
+
+The clients never connect directly to MongoDB. Each recorder owns a versioned payload and narrow API/store contract because Journal, English, Workout, and Food have different lifecycles.
 
 ## Local development
 
 Requirements:
 
-- Node.js 24 LTS
-- Corepack with pnpm 11.21.0 enabled
+- Node.js 24 LTS and pnpm 11.21.0 through Corepack
 - Rust stable MSVC toolchain
 - Visual Studio 2022 Build Tools with Desktop development with C++
 - Microsoft Edge WebView2
-- OpenAI Codex CLI installed globally and signed in when the `codex-cli` processor is selected (optional with `none`)
-- Heptabase Desktop with its CLI enabled; the worker starts the Desktop application when processing needs it
+- Optional: Codex CLI, Heptabase Desktop with CLI enabled, Anki Desktop with AnkiConnect
 
-Install the workspace dependencies:
+Install project-local dependencies:
 
 ```powershell
 pnpm.cmd install --frozen-lockfile
 ```
 
-Copy `apps/web/.env.example` to `apps/web/.env.local`, then provide the Atlas, Better Auth, Google OAuth, allowed-email, and Desktop-token values. Copy `apps/desktop/src-tauri/.env.example` to `apps/desktop/src-tauri/.env.local` and use the same Desktop token. Both `.env.local` files contain secrets and must not be committed.
+Copy `apps/web/.env.example` to `apps/web/.env.local` and provide the MongoDB, Better Auth, Google OAuth, authorized-email, and Desktop-token settings. For Desktop development, copy `apps/desktop/src-tauri/.env.example` to `.env.local` in that directory and use the same Desktop token. Never commit either `.env.local` file.
 
-Start the Web application:
+Run Web and Desktop in separate PowerShell windows:
 
 ```powershell
 pnpm.cmd dev
-```
-
-Then open `http://localhost:3000`.
-
-In a second PowerShell window, start the Desktop worker:
-
-```powershell
 pnpm.cmd desktop:dev
 ```
 
-Development uses `apps/desktop/src-tauri/.env.local`. The installed Desktop app instead lets the user save the Web API URL and Device Token from Worker Status. Those release settings are stored for the current Windows user in the application's AppData configuration directory and must still be treated as a secret.
-
-Desktop shortcuts:
-
-- `Ctrl + Numpad 5`: open Quick Capture;
-- `Ctrl + NumLock` (with `Ctrl + Pause` fallback): show or hide Worker Status.
-
-Closing either Desktop window hides it; use the tray menu's Quit action to stop the worker. Build the Windows NSIS installer with:
+The installed Desktop app can instead save the deployed Web URL and Device Token under Worker Status. Build its NSIS installer with:
 
 ```powershell
 pnpm.cmd desktop:build
 ```
 
-Run the current automated checks:
+## Windows controls
 
-```powershell
-pnpm.cmd lint       # Web ESLint
-pnpm.cmd test       # Web tests + Desktop Rust tests
-pnpm.cmd typecheck  # Web + Desktop TypeScript
-pnpm.cmd build      # Web production build (stop next dev first)
-```
+- `Ctrl + Numpad 5`: Quick Capture
+- `Ctrl + NumLock` (`Ctrl + Pause` fallback): Worker Status
+- `Ctrl + Left/Right`: move between recorder pages
+- Arrow keys, `Enter`, `Escape`, `Tab`, and `Shift + Tab`: complete Desktop workflows without a mouse
 
-This Windows setup uses the `.cmd` entry because the current PowerShell execution policy blocks the generated `pnpm.ps1` shim. On shells without that restriction, the equivalent command is simply `pnpm`.
+Closing a Desktop window hides it. Quit the background worker from the tray menu.
 
-## Current system
+## Add or replace components
 
-- A mobile-oriented Next.js Web application for Journal, English, Workout/Running, and Food capture.
-- A Cloud API hosted with the Web application on Vercel.
-- MongoDB Atlas for persistent cloud data and revision-safe cross-device synchronization.
-- A Tauri Windows application containing Quick Capture, special recorders, and the Desktop worker.
-- A configurable local Codex/none processor invoked by the Windows Desktop worker.
-- Heptabase as the first destination adapter; Anki remains later work.
-
-The first end-to-end target is:
-
-```text
-Web capture
-→ Cloud API
-→ Desktop worker
-→ Local Codex CLI
-→ Heptabase CLI
-→ Cloud API completion
-→ Web status
-```
-
-## Development principles
-
-- Build vertical slices instead of completing isolated subsystems.
-- Keep Web, Desktop, and future shared contracts in one monorepo.
-- Keep the Cloud API inside the Next.js application initially.
-- Let the Desktop access cloud data only through the API, never directly through MongoDB.
-- Introduce infrastructure and abstractions only when a milestone needs them.
-- Treat executable verification and manual verification as different evidence.
-
-Create a minimal Web/Desktop recorder starter with:
+Create a Web/Desktop recorder starter:
 
 ```powershell
 pnpm.cmd create:recorder -- reading 閱讀 R
+pnpm.cmd create:recorder -- reading 閱讀 R --dry-run
 ```
 
-The generated UI is intentionally plain. The [Recorder Page Guide](docs/recorder-pages.md) explains the interaction, synchronization, and verification contract without requiring a plugin framework.
+The generator updates the shared catalog and creates both platform pages. Synchronized recorders additionally need a versioned payload, validation, a narrow API route, and a store.
 
-## Documentation
+AI providers and destinations are separated from recorder UI. A fork can add an AI provider, implement another Markdown destination instead of Heptabase, or replace a MongoDB store without rewriting every client. These are code extension points rather than runtime plug-ins today.
 
-- [Architecture](docs/architecture.md)
-- [Roadmap](docs/roadmap.md)
-- [Extending recorders, AI, and destinations](docs/extending-capture.md)
-- [Recorder page creation guide](docs/recorder-pages.md)
-- [Contributing](CONTRIBUTING.md)
-- [Security](SECURITY.md)
-- [Collaboration rules](AGENTS.md)
+Read [Extending Capture](docs/extending-capture.md) and the [Recorder Page Guide](docs/recorder-pages.md) before adding an integration.
+
+## Verification
+
+```powershell
+pnpm.cmd lint
+pnpm.cmd typecheck
+pnpm.cmd test
+pnpm.cmd build
+pnpm.cmd desktop:build
+```
+
+Automated checks do not prove that a user's local Codex, Heptabase, Anki, OAuth, or production deployment is configured correctly. Use the disposable smoke tests in the [release checklist](docs/release-checklist.md) before publishing a release.
+
+## Security and scope
+
+- Current authentication and authorization are designed for one authorized user and one private Desktop token.
+- Secrets belong only in ignored `.env.local` files, deployment secrets, or per-user Desktop settings.
+- AI automation is off until enabled by the user.
+- AnkiConnect is restricted to the loopback interface.
+- Arbitrary remote plug-ins are intentionally not loaded.
+
+See [Security](SECURITY.md), [Architecture](docs/architecture.md), and [Roadmap](docs/roadmap.md) for boundaries and known limitations.
+
+## Contributing
+
+Capture is also a software-engineering learning project, so contributions should stay small, understandable, and executable. Read [Contributing](CONTRIBUTING.md) before opening a change.
+
+Licensed under the [MIT License](LICENSE).

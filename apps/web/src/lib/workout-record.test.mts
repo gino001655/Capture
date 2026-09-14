@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { emptyWorkoutPayload, elapsedWorkoutTimer, findPreviousStrengthExercise, nextWorkoutSetIndex, summarizeWorkoutRecord, validateWorkoutSaveRequest, type WorkoutRecord, type WorkoutSaveInput } from "./workout-record.ts";
+import { emptyWorkoutPayload, elapsedWorkoutTimer, findPreviousStrengthExercise, nextWorkoutSetIndex, summarizeWorkoutRecord, summarizeWorkoutSessions, validateWorkoutSaveRequest, type WorkoutRecord, type WorkoutSaveInput } from "./workout-record.ts";
 
 const input: WorkoutSaveInput = {
   journalDate: "2026-09-08",
@@ -117,4 +117,31 @@ test("workout history summary exposes both session and exercise names", () => {
     sessionNames: ["胸＋三頭"],
     exerciseNames: ["Bench press"],
   });
+});
+
+test("workout history keeps multiple sessions on the same day distinct", () => {
+  const value = record("2026-09-12", "早上胸", 80, 8);
+  const evening = structuredClone(value.payload.sessions[0]);
+  evening.id = "66666666-6666-4666-8666-666666666666";
+  evening.name = "晚上跑步";
+  evening.exercises = [{
+    id: "77777777-7777-4777-8777-777777777777",
+    kind: "running",
+    name: "間歇跑",
+    note: "",
+    distanceKm: 5,
+    durationSeconds: 1_500,
+    averageHeartRate: null,
+    maximumHeartRate: null,
+    temperatureC: null,
+    elevationGainM: null,
+    rpe: null,
+    segments: [],
+  }];
+  value.payload.sessions.push(evening);
+
+  assert.deepEqual(summarizeWorkoutSessions(value), [
+    { id: input.payload.sessions[0].id, name: "早上胸", exerciseNames: ["Bench press"] },
+    { id: evening.id, name: "晚上跑步", exerciseNames: ["間歇跑"] },
+  ]);
 });

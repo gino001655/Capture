@@ -1,11 +1,12 @@
 mod ai_provider;
+mod anki;
 mod config;
 mod destination;
 mod journal;
-mod special;
 mod processor;
-mod worker;
+mod special;
 mod window_position;
+mod worker;
 
 use serde::Serialize;
 use std::{
@@ -332,6 +333,27 @@ async fn get_journal_delivery_status(
 }
 
 #[tauri::command]
+async fn get_english_delivery_status(
+    app: AppHandle,
+) -> Result<worker::EnglishDeliveryStatus, String> {
+    let config = WorkerConfig::load(&app)?;
+    worker::get_english_delivery_status(&config).await
+}
+
+#[tauri::command]
+async fn send_anki_test_card(app: AppHandle) -> Result<String, String> {
+    let config = WorkerConfig::load(&app)?;
+    if !config.anki_enabled {
+        return Err("Enable 'Send past English notes to Anki' and save first.".to_owned());
+    }
+    let endpoint = config.anki_connect_url.clone();
+    let deck = config.anki_deck.clone();
+    tauri::async_runtime::spawn_blocking(move || anki::send_test_card(&endpoint, &deck))
+        .await
+        .map_err(|error| format!("The Anki test stopped unexpectedly: {error}"))?
+}
+
+#[tauri::command]
 async fn retry_failed_journal_deliveries(app: AppHandle) -> Result<(), String> {
     let config = WorkerConfig::load(&app)?;
     worker::retry_failed_journal_deliveries(&config).await
@@ -357,8 +379,20 @@ fn save_processing_settings(
     app: AppHandle,
     ai_provider: String,
     ai_model: Option<String>,
+    journal_ai_enabled: bool,
+    anki_enabled: bool,
+    anki_connect_url: String,
+    anki_deck: String,
 ) -> Result<ConnectionSettingsSummary, String> {
-    WorkerConfig::save_processing(&app, ai_provider, ai_model)?;
+    WorkerConfig::save_processing(
+        &app,
+        ai_provider,
+        ai_model,
+        journal_ai_enabled,
+        anki_enabled,
+        anki_connect_url,
+        anki_deck,
+    )?;
     Ok(WorkerConfig::summary(&app))
 }
 
@@ -452,17 +486,15 @@ pub fn run() {
             start_background_worker(app.handle().clone(), runtime.clone());
             Ok(())
         })
-        .on_window_event(|window, event| {
-            match event {
-                WindowEvent::CloseRequested { api, .. } => {
-                    api.prevent_close();
-                    let _ = window.hide();
-                }
-                WindowEvent::Moved(position) if window.label() == "capture" => {
-                    window_position::save(window.app_handle(), *position);
-                }
-                _ => {}
+        .on_window_event(|window, event| match event {
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                let _ = window.hide();
             }
+            WindowEvent::Moved(position) if window.label() == "capture" => {
+                window_position::save(window.app_handle(), *position);
+            }
+            _ => {}
         })
         .invoke_handler(tauri::generate_handler![
             check_for_work,
@@ -470,6 +502,8 @@ pub fn run() {
             set_pause,
             create_capture,
             get_journal_delivery_status,
+            get_english_delivery_status,
+            send_anki_test_card,
             retry_failed_journal_deliveries,
             get_connection_settings,
             save_connection_settings,

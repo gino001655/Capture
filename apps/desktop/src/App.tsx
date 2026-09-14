@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from "react";
+import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { emitTo } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -9,6 +9,7 @@ import {
   type CaptureTheme,
 } from "./capture-theme";
 import { DesktopJournal } from "./DesktopJournal";
+import { handleDirectionalFocus } from "./keyboard-navigation";
 import "./App.css";
 
 const CAPTURE_SHORTCUT = "Ctrl + Numpad 5";
@@ -29,6 +30,10 @@ type ConnectionSettings = {
   source: "environment" | "saved" | "missing";
   aiProvider: "codex-cli" | "none";
   aiModel: string | null;
+  journalAiEnabled: boolean;
+  ankiEnabled: boolean;
+  ankiConnectUrl: string;
+  ankiDeck: string;
 };
 
 type TrashedJournalRecord = {
@@ -53,6 +58,12 @@ type JournalDeliveryStatus = {
   }>;
 };
 
+type EnglishDeliveryStatus = {
+  pending: number;
+  processing: number;
+  failed: number;
+};
+
 function formatLastChecked(timestamp: number | null) {
   return timestamp === null
     ? "Not yet"
@@ -60,6 +71,7 @@ function formatLastChecked(timestamp: number | null) {
 }
 
 function WorkerView() {
+  const rootRef = useRef<HTMLElement | null>(null);
   const [snapshot, setSnapshot] = useState<WorkerSnapshot>({
     kind: "ready",
     message: "Reading worker status...",
@@ -75,18 +87,29 @@ function WorkerView() {
     source: "missing",
     aiProvider: "codex-cli",
     aiModel: null,
+    journalAiEnabled: false,
+    ankiEnabled: false,
+    ankiConnectUrl: "http://127.0.0.1:8765",
+    ankiDeck: "English",
   });
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:3000");
   const [deviceToken, setDeviceToken] = useState("");
   const [aiProvider, setAiProvider] = useState<ConnectionSettings["aiProvider"]>("codex-cli");
   const [aiModel, setAiModel] = useState("");
+  const [journalAiEnabled, setJournalAiEnabled] = useState(false);
+  const [ankiEnabled, setAnkiEnabled] = useState(false);
+  const [ankiConnectUrl, setAnkiConnectUrl] = useState("http://127.0.0.1:8765");
+  const [ankiDeck, setAnkiDeck] = useState("English");
   const [savingProcessing, setSavingProcessing] = useState(false);
+  const [testingAnki, setTestingAnki] = useState(false);
+  const [ankiTestResult, setAnkiTestResult] = useState<string | null>(null);
   const [savingConnection, setSavingConnection] = useState(false);
   const [settingError, setSettingError] = useState<string | null>(null);
   const [captureTheme, setCaptureTheme] = useState<CaptureTheme>(readCaptureTheme);
   const [trashRecords, setTrashRecords] = useState<TrashedJournalRecord[]>([]);
   const [trashLoading, setTrashLoading] = useState(false);
   const [deliveryStatus, setDeliveryStatus] = useState<JournalDeliveryStatus | null>(null);
+  const [englishDeliveryStatus, setEnglishDeliveryStatus] = useState<EnglishDeliveryStatus | null>(null);
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -98,9 +121,15 @@ function WorkerView() {
 
   const refreshDeliveryStatus = useCallback(async () => {
     try {
-      setDeliveryStatus(await invoke<JournalDeliveryStatus>("get_journal_delivery_status"));
+      const [journal, english] = await Promise.all([
+        invoke<JournalDeliveryStatus>("get_journal_delivery_status"),
+        invoke<EnglishDeliveryStatus>("get_english_delivery_status"),
+      ]);
+      setDeliveryStatus(journal);
+      setEnglishDeliveryStatus(english);
     } catch {
       setDeliveryStatus(null);
+      setEnglishDeliveryStatus(null);
     }
   }, []);
 
@@ -119,6 +148,10 @@ function WorkerView() {
       setApiBaseUrl(settings.apiBaseUrl);
       setAiProvider(settings.aiProvider);
       setAiModel(settings.aiModel ?? "");
+      setJournalAiEnabled(settings.journalAiEnabled);
+      setAnkiEnabled(settings.ankiEnabled);
+      setAnkiConnectUrl(settings.ankiConnectUrl);
+      setAnkiDeck(settings.ankiDeck);
     });
 
     const intervalId = window.setInterval(() => {
@@ -140,6 +173,20 @@ function WorkerView() {
       window.removeEventListener("online", checkAfterReconnect);
     };
   }, [refreshDeliveryStatus, refreshStatus]);
+
+  useEffect(() => {
+    const handleKeyboard = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        void invoke("hide_current_window");
+        return;
+      }
+      if (rootRef.current) handleDirectionalFocus(event, rootRef.current);
+    };
+    window.addEventListener("keydown", handleKeyboard);
+    return () => window.removeEventListener("keydown", handleKeyboard);
+  }, []);
 
   async function checkNow() {
     setSettingError(null);
@@ -208,16 +255,38 @@ function WorkerView() {
       const settings = await invoke<ConnectionSettings>("save_processing_settings", {
         aiProvider,
         aiModel: aiModel.trim() || null,
+        journalAiEnabled,
+        ankiEnabled,
+        ankiConnectUrl,
+        ankiDeck,
       });
       setConnection(settings);
       setAiProvider(settings.aiProvider);
       setAiModel(settings.aiModel ?? "");
+      setJournalAiEnabled(settings.journalAiEnabled);
+      setAnkiEnabled(settings.ankiEnabled);
+      setAnkiConnectUrl(settings.ankiConnectUrl);
+      setAnkiDeck(settings.ankiDeck);
+      await refreshDeliveryStatus();
     } catch (error) {
       setSettingError(
         typeof error === "string" ? error : "Could not save processing settings.",
       );
     } finally {
       setSavingProcessing(false);
+    }
+  }
+
+  async function sendAnkiTestCard() {
+    setSettingError(null);
+    setAnkiTestResult(null);
+    setTestingAnki(true);
+    try {
+      setAnkiTestResult(await invoke<string>("send_anki_test_card"));
+    } catch (error) {
+      setSettingError(typeof error === "string" ? error : "Could not send the Anki test card.");
+    } finally {
+      setTestingAnki(false);
     }
   }
 
@@ -257,7 +326,7 @@ function WorkerView() {
   }
 
   return (
-    <main className="workerShell">
+    <main className="workerShell" ref={rootRef} tabIndex={-1}>
       <header>
         <p className="eyebrow">Background worker</p>
         <h1>Personal Capture</h1>
@@ -306,6 +375,16 @@ function WorkerView() {
               ))}
             </ul>
           ) : null}
+        </section>
+      ) : null}
+
+      {englishDeliveryStatus && connection.ankiEnabled ? (
+        <section className="deliveryQueue englishDeliveryQueue" aria-label="English to Anki queue">
+          <div><strong>{englishDeliveryStatus.pending}</strong><span>English pending</span></div>
+          <div><strong>{englishDeliveryStatus.processing}</strong><span>Processing</span></div>
+          <div className={englishDeliveryStatus.failed > 0 ? "hasFailure" : undefined}>
+            <strong>{englishDeliveryStatus.failed}</strong><span>Failed</span>
+          </div>
         </section>
       ) : null}
 
@@ -378,12 +457,55 @@ function WorkerView() {
               disabled={aiProvider !== "codex-cli" || connection.source === "environment"}
             />
           </label>
+          <label className="settingToggle compactSettingToggle">
+            <input
+              type="checkbox"
+              checked={journalAiEnabled}
+              onChange={(event) => setJournalAiEnabled(event.target.checked)}
+              disabled={connection.source === "environment"}
+            />
+            Organize Journal with AI
+          </label>
+          <label className="settingToggle compactSettingToggle">
+            <input
+              type="checkbox"
+              checked={ankiEnabled}
+              onChange={(event) => setAnkiEnabled(event.target.checked)}
+              disabled={connection.source === "environment"}
+            />
+            Send past English notes to Anki
+          </label>
+          <label>
+            AnkiConnect URL
+            <input
+              type="url"
+              value={ankiConnectUrl}
+              onChange={(event) => setAnkiConnectUrl(event.target.value)}
+              disabled={!ankiEnabled || connection.source === "environment"}
+            />
+          </label>
+          <label>
+            Anki deck
+            <input
+              value={ankiDeck}
+              onChange={(event) => setAnkiDeck(event.target.value)}
+              disabled={!ankiEnabled || connection.source === "environment"}
+            />
+          </label>
           <div className="connectionFooter">
             <small>
               {connection.source === "environment"
-                ? "Controlled by CAPTURE_AI_PROVIDER / CAPTURE_AI_MODEL."
-                : "Journal delivery remains deterministic until its AI stage is enabled."}
+                ? "Controlled by CAPTURE_AI_* and CAPTURE_ANKI_* environment variables."
+                : "Automation stays off until enabled here; raw Cloud records are retained."}
             </small>
+            <button
+              type="button"
+              className="secondaryButton"
+              disabled={testingAnki || !connection.ankiEnabled}
+              onClick={sendAnkiTestCard}
+            >
+              {testingAnki ? "Sending test..." : "Send Anki test card"}
+            </button>
             <button
               type="submit"
               disabled={savingProcessing || !connection.tokenConfigured || connection.source === "environment"}
@@ -391,6 +513,7 @@ function WorkerView() {
               {savingProcessing ? "Saving..." : "Save"}
             </button>
           </div>
+          {ankiTestResult ? <small role="status">{ankiTestResult}</small> : null}
         </form>
       </details>
 

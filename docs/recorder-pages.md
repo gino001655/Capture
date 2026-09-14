@@ -34,6 +34,8 @@ Every recorder has one id, label, symbol, and order in `packages/recorder-kit/sr
 
 The Web component receives `active` and `onSelectModule`. Return `null` while inactive so hidden recorders do not intercept focus or gestures. The Desktop definition receives `requestModeChange`; preserve `Ctrl + Left/Right` so keyboard navigation remains consistent.
 
+Desktop recorders should also pass unmodified directional-key events to the shared `handleDirectionalFocus` helper. Text fields retain normal cursor behavior; multiline fields hand `Up/Down` to focus navigation only at their first or last character. `Escape` should close the recorder's innermost detail or history layer before bubbling to the Capture shell.
+
 Mobile and Desktop should share the same concepts, ordering, data, and save rules. They do not need identical pixels: mobile may use swipe and touch-sized targets, while Desktop may use keyboard focus and a denser fixed window.
 
 ## Minimal interaction standard

@@ -1,6 +1,6 @@
 [package]
 name = "capture-desktop"
-version = "0.5.2"
+version = "0.6.0"
 description = "Desktop worker for Personal Capture System"
 edition = "2021"
 
@@ -18,7 +18,7 @@ tauri-build = { version = "2", features = [] }
 
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
-reqwest = { version = "0.12", features = ["json"] }
+reqwest = { version = "0.12", features = ["json", "blocking"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 dotenvy = "0.15.7"

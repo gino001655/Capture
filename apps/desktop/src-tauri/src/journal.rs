@@ -90,7 +90,13 @@ fn bearer_value(device_token: &str) -> String {
 fn api_error_message(status: u16, body: &str) -> String {
     serde_json::from_str::<Value>(body)
         .ok()
-        .and_then(|value| value.get("error")?.get("message")?.as_str().map(str::to_owned))
+        .and_then(|value| {
+            value
+                .get("error")?
+                .get("message")?
+                .as_str()
+                .map(str::to_owned)
+        })
         .unwrap_or_else(|| format!("Journal API returned {status}."))
 }
 
@@ -248,7 +254,10 @@ mod tests {
 
     #[test]
     fn bearer_value_keeps_the_saved_device_token_out_of_query_strings() {
-        assert_eq!(bearer_value("secret-device-token"), "Bearer secret-device-token");
+        assert_eq!(
+            bearer_value("secret-device-token"),
+            "Bearer secret-device-token"
+        );
     }
 
     #[test]
@@ -257,6 +266,9 @@ mod tests {
             api_error_message(409, r#"{"error":{"message":"Revision conflict."}}"#),
             "Revision conflict."
         );
-        assert_eq!(api_error_message(503, "not-json"), "Journal API returned 503.");
+        assert_eq!(
+            api_error_message(503, "not-json"),
+            "Journal API returned 503."
+        );
     }
 }

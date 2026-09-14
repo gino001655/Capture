@@ -30,9 +30,15 @@ pub(crate) fn save(app: &AppHandle, position: PhysicalPosition<i32>) {
 }
 
 pub(crate) fn restore(app: &AppHandle) {
-    let Some(window) = app.get_webview_window("capture") else { return };
+    let Some(window) = app.get_webview_window("capture") else {
+        return;
+    };
     let Ok(path) = position_path(app) else { return };
-    let Ok(json) = fs::read_to_string(path) else { return };
-    let Ok(position) = serde_json::from_str::<CaptureWindowPosition>(&json) else { return };
+    let Ok(json) = fs::read_to_string(path) else {
+        return;
+    };
+    let Ok(position) = serde_json::from_str::<CaptureWindowPosition>(&json) else {
+        return;
+    };
     let _ = window.set_position(PhysicalPosition::new(position.x, position.y));
 }

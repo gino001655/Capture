@@ -1086,6 +1086,8 @@ button:disabled {
 .workoutFloatingActions .newSession { padding: 8px 12px; font-weight: 700; }
 .workoutHistory .recorderSectionTitle { padding: 18px 14px 8px; margin: 0; }
 .workoutHistoryRow span { display: grid; gap: 5px; }
+.workoutHistorySessions { gap: 10px !important; }
+.workoutHistorySessions > span { gap: 3px; }
 .workoutHistoryRow strong { font-size: 0.84rem; }
 .workoutHistoryRow small { opacity: 0.5; font-size: 0.7rem; line-height: 1.45; }
 .workoutLibrary { padding: 18px 14px; }

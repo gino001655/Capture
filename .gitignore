@@ -23,3 +23,6 @@ Thumbs.db
 
 # Local Git worktrees
 .worktrees/
+
+# Local agent/brainstorming workspace state (not part of Capture)
+.superpowers/

@@ -12,7 +12,7 @@ import type {
   WorkoutSession,
   WorkoutSet,
 } from "../lib/workout-record";
-import { elapsedWorkoutTimer, emptyWorkoutPayload, findPreviousStrengthExercise, nextWorkoutSetIndex, summarizeWorkoutRecord } from "../lib/workout-record";
+import { elapsedWorkoutTimer, emptyWorkoutPayload, findPreviousStrengthExercise, nextWorkoutSetIndex, summarizeWorkoutSessions } from "../lib/workout-record";
 import { shiftJournalDate } from "./journal-session";
 import { ModuleRail, type CaptureModule } from "./module-rail";
 import { toTaipeiDate } from "../lib/special-record";
@@ -441,10 +441,10 @@ export function WorkoutApp({
             </div>)}
           </details>
           <h2 className="recorderSectionTitle">訓練歷史</h2>
-          {history.map((record) => { const summary = summarizeWorkoutRecord(record); return (
+          {history.map((record) => { const sessions = summarizeWorkoutSessions(record); return (
             <button className="workoutHistoryRow" key={record.id} onClick={() => { setHistoryOpen(false); void load(record.journalDate); }}>
               <time>{record.journalDate.slice(5).replace("-", ".")}</time>
-              <span><strong>{summary.sessionNames.join(" / ")}</strong><small>{summary.exerciseNames.length ? summary.exerciseNames.join(" · ") : "尚無動作"}</small></span>
+              <span className="workoutHistorySessions">{sessions.map((session) => <span key={session.id}><strong>{session.name}</strong><small>{session.exerciseNames.length ? session.exerciseNames.join(" · ") : "尚無動作"}</small></span>)}</span>
             </button>
           ); })}
         </section>

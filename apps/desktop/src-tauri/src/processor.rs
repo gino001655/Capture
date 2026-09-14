@@ -50,6 +50,20 @@ pub(crate) struct JournalRecordForDelivery {
     areas: JournalAreasForDelivery,
 }
 
+pub(crate) struct EnglishProcessingFailure {
+    pub(crate) message: String,
+    pub(crate) receipt: Option<String>,
+}
+
+impl From<String> for EnglishProcessingFailure {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            receipt: None,
+        }
+    }
+}
+
 pub(crate) fn process_capture(
     content: &str,
     ai_provider: &str,
@@ -68,18 +82,70 @@ pub(crate) fn process_capture(
     result
 }
 
+pub(crate) fn process_english_delivery(
+    journal_date: &str,
+    text: &str,
+    ai_provider: &str,
+    ai_model: Option<&str>,
+    anki_connect_url: &str,
+    anki_deck: &str,
+) -> Result<String, EnglishProcessingFailure> {
+    if !is_journal_date(journal_date) || text.trim().is_empty() {
+        return Err("English delivery requires a valid date and non-empty text."
+            .to_owned()
+            .into());
+    }
+    let provider = crate::ai_provider::AiProvider::load(ai_provider, ai_model)
+        .map_err(EnglishProcessingFailure::from)?;
+    let output = provider
+        .create_anki_notes(text)
+        .map_err(EnglishProcessingFailure::from)?;
+    crate::anki::send_notes(
+        anki_connect_url,
+        anki_deck,
+        journal_date,
+        &output.notes,
+        output.unresolved,
+    )
+    .map_err(|failure| EnglishProcessingFailure {
+        message: failure.message,
+        receipt: Some(failure.receipt),
+    })
+}
+
 pub(crate) fn process_journal_delivery(
     journal_date: &str,
     records: &[JournalRecordForDelivery],
+    ai_provider: &str,
+    ai_model: Option<&str>,
+    journal_ai_enabled: bool,
 ) -> Result<String, String> {
     if !is_journal_date(journal_date) {
         return Err("Journal delivery date must use YYYY-MM-DD.".to_owned());
     }
 
-    let markdown = format_journal_records(records);
-    if markdown.trim().is_empty() {
+    let source_markdown = format_journal_records(records);
+    if source_markdown.trim().is_empty() {
         return Err("Journal delivery contained no text.".to_owned());
     }
+
+    let markdown = if journal_ai_enabled {
+        let provider = crate::ai_provider::AiProvider::load(ai_provider, ai_model)?;
+        let output_path = temporary_markdown_path("journal-ai");
+        let result = (|| {
+            provider.organize_journal_markdown(&source_markdown, &output_path)?;
+            let output = fs::read_to_string(&output_path)
+                .map_err(|error| format!("Could not read organized Journal Markdown: {error}"))?;
+            if output.trim().is_empty() {
+                return Err("Journal AI returned empty Markdown.".to_owned());
+            }
+            Ok(output.trim().to_owned())
+        })();
+        let _ = fs::remove_file(output_path);
+        result?
+    } else {
+        source_markdown
+    };
 
     HeptabasePaths::discover()?.append_journal(journal_date, &markdown, records.len())
 }
@@ -297,11 +363,14 @@ fn format_journal_records(records: &[JournalRecordForDelivery]) -> String {
 fn format_journal_record(record: &JournalRecordForDelivery) -> Option<String> {
     let areas = [
         (None, record.areas.unclassified.as_str()),
-        (Some("事"), record.areas.event.as_str()),
+        // The persisted field names predate the user's symbolic semantics.
+        // Keep the storage contract stable and interpret each slot by the
+        // symbol shown in both clients: + 續, ? 疑, ~ 心, ! 悟, * 事.
+        (Some("續"), record.areas.event.as_str()),
         (Some("疑"), record.areas.question.as_str()),
-        (Some("悟"), record.areas.insight.as_str()),
-        (Some("續"), record.areas.next.as_str()),
-        (Some("心"), record.areas.feeling.as_str()),
+        (Some("心"), record.areas.insight.as_str()),
+        (Some("悟"), record.areas.next.as_str()),
+        (Some("事"), record.areas.feeling.as_str()),
     ];
     let formatted = areas
         .into_iter()
@@ -446,7 +515,7 @@ mod tests {
 
         assert_eq!(
             format_journal_records(&records),
-            "- 事：買菜\n- 悟：\n  - 第一點\n  - 第二點\n\n---\n\n- 純粹記下來"
+            "- 續：買菜\n- 心：\n  - 第一點\n  - 第二點\n\n---\n\n- 純粹記下來"
         );
     }
 
@@ -465,7 +534,7 @@ mod tests {
 
         assert_eq!(
             format_journal_records(&records),
-            "- 悟：\n  - 第一點\n    - 內層\n  2. 第二點"
+            "- 心：\n  - 第一點\n    - 內層\n  2. 第二點"
         );
     }
 

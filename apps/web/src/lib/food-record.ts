@@ -31,6 +31,10 @@ export type FoodRecord = {
   lockedAt: string | null;
 };
 
+export function foodEntryIsExpanded(expandedId: string | null, entryId: string): boolean {
+  return expandedId === entryId;
+}
+
 export type FoodSaveInput = { journalDate: string; payload: FoodPayload; expectedRevision: number | null; clientUpdatedAt: string };
 
 function optionalNumber(value: unknown, max: number) { return value === null || (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= max); }

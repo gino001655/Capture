@@ -23,7 +23,7 @@ Journal is the core recorder and has a delivery lifecycle. Special recorders use
 
 ## Select or add an AI provider
 
-Worker Status → Processing selects the provider used by the legacy text-to-note processor:
+Worker Status → Processing selects the provider used by legacy notes and any explicitly enabled Journal/English automation:
 
 - `codex-cli` uses the locally signed-in Codex CLI. An optional model name is passed with `--model`.
 - `none` preserves the raw text in deterministic Markdown and requires no AI CLI.
@@ -35,13 +35,13 @@ CAPTURE_AI_PROVIDER=codex-cli
 CAPTURE_AI_MODEL=
 ```
 
-The implementation contract is `AiProvider::write_markdown` in `apps/desktop/src-tauri/src/ai_provider.rs`: untrusted captured text enters as a string and a Markdown file is produced. Add a provider variant there, keep credentials in environment or per-user configuration, and never interpolate capture text into a shell command.
+The implementation contract is `AiProvider` in `apps/desktop/src-tauri/src/ai_provider.rs`: untrusted content enters as data and the provider returns validated Markdown or card data. Add a provider variant there, keep credentials in environment or per-user configuration, and never interpolate capture text into a shell command.
 
-The daily Journal delivery intentionally does not use AI yet. Its deterministic formatter is the verified fallback; the later classification stage should call the same provider boundary and retain the raw Journal records as source data.
+Journal AI is opt-in and starts from the deterministic formatter; English automation returns validated `front/back/tags` cards. Both retain raw Cloud records and report failures to their queue instead of silently substituting output.
 
 ## Add a destination
 
-Heptabase is currently the only destination. The stable contract is `CaptureDestination` in `apps/desktop/src-tauri/src/destination.rs`; its local CLI implementation currently lives beside the deterministic formatters in `processor.rs`. Cloud never receives destination credentials. A new adapter consumes prepared Markdown and returns a stable receipt without changing the worker, recorder UI, or Cloud API.
+Heptabase implements the Markdown destination contract in `destination.rs`; AnkiConnect is isolated in `anki.rs` because cards use a different data shape. Cloud never receives destination credentials. Add a narrow typed adapter for a new destination rather than adding destination-specific logic to recorder UI or MongoDB stores.
 
 ## Data and secrets
 
