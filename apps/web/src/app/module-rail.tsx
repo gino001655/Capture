@@ -22,6 +22,7 @@ export function ModuleRail({
           onClick={() => onSelect(module.id)}
         >
           <span aria-hidden="true">{module.symbol}</span>
+          <small>{module.label === "Journal" ? "日記" : module.label}</small>
         </button>
       ))}
     </nav>

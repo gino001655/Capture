@@ -394,7 +394,7 @@ export function DesktopJournal() {
     setConfirmation("none");
     setView("special");
     window.setTimeout(() => {
-      document.querySelector<HTMLElement>(".captureExtensionPage")?.focus();
+      document.querySelector<HTMLElement>(".captureExtensionPage, .desktopFood, .desktopEnglish")?.focus();
     }, 0);
   }
 
@@ -761,6 +761,37 @@ export function DesktopJournal() {
       }
     }
   }
+
+  // Window-level handling also works when a newly mounted page has no focused input.
+  useEffect(() => {
+    const escape = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || event.isComposing || event.key !== "Escape" || view === "special") return;
+      // These handlers use only keyboard fields and preventDefault for Escape.
+      if (view === "quick") handleQuickKey(event as unknown as ReactKeyboardEvent<HTMLTextAreaElement>, 0);
+      else if (view === "record") handleRecordKey(event as unknown as ReactKeyboardEvent<HTMLElement>);
+      else if (view === "list") handleListKey(event as unknown as ReactKeyboardEvent<HTMLElement>);
+    };
+    window.addEventListener("keydown", escape);
+    return () => window.removeEventListener("keydown", escape);
+  });
+
+  useEffect(() => {
+    if (view !== "special") return;
+    const handle = (event: KeyboardEvent) => {
+      if (event.isComposing) return;
+      if (event.ctrlKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+        event.preventDefault();
+        event.stopPropagation();
+        requestModeChange(event.key === "ArrowLeft" ? -1 : 1);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        showQuickCapture();
+      }
+    };
+    window.addEventListener("keydown", handle, true);
+    return () => window.removeEventListener("keydown", handle, true);
+  });
 
   const themeStyle = {
     "--paper": captureTheme.paper,

@@ -927,6 +927,71 @@ button:disabled {
 .foodLibrary > div.archived { opacity: 0.4; }
 .foodLibrary input, .foodLibrary button { min-width: 0; border: 0; padding: 7px 3px; background: transparent; color: inherit; }
 
+/* The shell owns the viewport; only the middle list scrolls. */
+.foodShell, .workoutShell {
+  height: 100dvh; min-height: 0; width: min(100%, 680px); margin: 0 auto;
+  padding: env(safe-area-inset-top) 0 0; box-sizing: border-box;
+  overflow: hidden; background: var(--journal-paper, #fff);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+}
+.workoutShell { grid-template-rows: auto auto minmax(0, 1fr) auto; }
+.foodToolbar { grid-template-columns: 76px 1fr auto; min-height: 48px; padding-right: 12px; }
+.foodToolbar > span { font-size: 0.9rem; }
+.foodToolbar > small { font-size: 0.7rem; opacity: 0.55; }
+.workoutToolbar { min-height: 48px; grid-template-columns: 64px 1fr 42px; }
+.foodBody, .workoutBody, .workoutHistory { overflow-x: hidden; overflow-anchor: none; touch-action: pan-y; }
+.moduleRail { flex-shrink: 0; position: relative; min-height: 56px; padding-bottom: max(6px, env(safe-area-inset-bottom)); background: var(--journal-paper, #fff); }
+.moduleRail button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 48px; }
+.moduleRail small { font-size: 0.65rem; }
+.foodTotals { display: flex; gap: 24px; padding: 16px; border-bottom: 1px solid var(--food-line); font-size: 0.8rem; }
+.foodTotals strong { font-size: 1.15rem; font-variant-numeric: tabular-nums; }
+.recorderOptions { padding: 12px 16px; border-bottom: 1px solid var(--food-line, var(--workout-line)); }
+.recorderOptions summary, .recorderExercise summary { cursor: pointer; min-height: 24px; font-size: 0.85rem; }
+.recorderOptions .foodFields { margin-top: 12px; }
+.recorderActions { display: flex; justify-content: space-between; gap: 12px; padding: 12px 16px; }
+.recorderActions button { min-height: 40px; border: 0; background: transparent; color: inherit; font: inherit; font-size: 0.8rem; padding: 6px 0; }
+.recorderActions button:first-child { font-weight: 650; }
+.recorderHint { margin: 10px 16px; opacity: 0.55; font-size: 0.75rem; line-height: 1.6; }
+.recorderListHeading { padding: 12px 16px; border-bottom: 1px solid var(--food-line); font-size: 0.8rem; }
+.recorderListHeading small { margin-left: 8px; opacity: 0.5; }
+.foodEntry { padding: 0 16px; }
+.foodEntry .recorderSummary { display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 64px; text-align: start; gap: 12px; padding: 12px 0; }
+.recorderSummary > span:first-child { min-width: 0; display: grid; gap: 5px; }
+.recorderSummary strong { font-size: 0.9rem; overflow-wrap: anywhere; }
+.recorderSummary small { font-size: 0.72rem; opacity: 0.55; }
+.recorderSummary > span:last-child { flex-shrink: 0; font-size: 0.65rem; opacity: 0.6; }
+.foodEntry .foodEntryForm { display: block; padding-bottom: 12px; }
+.foodNameLabel { display: grid; gap: 5px; font-size: 0.75rem; margin: 8px 0 14px; }
+.foodEntryForm input, .foodEntryForm textarea, .recorderOptions input { font-size: 16px; min-height: 42px; width: 100%; box-sizing: border-box; border-bottom: 1px solid var(--food-line); border-radius: 0; }
+.foodFields { gap: 14px; }
+.foodFields label { opacity: 1; font-size: 0.75rem; }
+.foodEntryForm .recorderActions { padding: 0; }
+.recentFoods { padding: 10px 0 0; flex-wrap: wrap; overflow: visible; border: 0; }
+.recentFoods button { background: transparent; padding: 8px 0; margin-right: 14px; font-size: 0.8rem; }
+.recorderExercise { padding: 0 14px; }
+.recorderExercise > summary { padding: 16px 0; }
+.recorderExercise > summary strong { font-size: 0.9rem; }
+.recorderExercise > summary small { display: block; margin: 6px 0 0 16px; opacity: 0.55; font-size: 0.72rem; }
+.exerciseForm { padding-bottom: 14px; }
+.exerciseForm input, .exerciseForm textarea { font-size: 16px; }
+.workoutSession { padding-bottom: 12px; }
+.sessionHeader { grid-template-columns: minmax(0, 1fr) auto; }
+.sessionHeader button { padding: 10px; font-size: 0.75rem; }
+.addExercise { grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; }
+.addExercise button { font-size: 0.75rem; }
+.addExercise > div { flex-wrap: wrap; }
+.addExercise > div small { flex-basis: 100%; margin: 8px 0; opacity: 0.55; }
+.emptyWorkout { min-height: 220px; }
+.emptyWorkout > button { font-size: 1rem; }
+.restTimer { position: static; border: 0; border-top: 1px solid var(--workout-line); width: auto; margin: 12px 14px; padding-top: 14px; background: transparent; backdrop-filter: none; }
+.restTimer button { font-size: 0.8rem; }
+.foodShell .specialConflict, .workoutShell .specialConflict {
+  position: static; display: flex; flex-wrap: wrap; margin: 0; padding: 12px 16px;
+  font-size: 0.75rem; border: 0; border-bottom: 1px solid currentColor; backdrop-filter: none;
+}
+.foodShell .specialConflict span, .workoutShell .specialConflict span { flex-basis: 100%; opacity: 0.8; line-height: 1.5; }
+.recorderNotices { min-height: 0; }
+
 .englishShell,
 .workoutShell,
 .foodShell { position: relative; }
@@ -948,7 +1013,7 @@ button:disabled {
 .specialConflict span { opacity: 0.52; }
 .specialConflict button { border: 0; border-bottom: 1px solid currentColor; padding: 1px 0; background: transparent; color: inherit; font: inherit; }
 
-main:not(.journalShell):not(.englishShell):not(.specialPlaceholder) {
+main:not(.journalShell):not(.englishShell):not(.specialPlaceholder):not(.workoutShell):not(.foodShell) {
   display: grid;
   width: min(100%, 64rem);
   min-height: 100dvh;
@@ -1019,7 +1084,7 @@ main:not(.journalShell):not(.englishShell):not(.specialPlaceholder) {
 }
 
 @media (max-width: 44.99rem) {
-  main:not(.journalShell):not(.englishShell):not(.specialPlaceholder) {
+  main:not(.journalShell):not(.englishShell):not(.specialPlaceholder):not(.workoutShell):not(.foodShell) {
     padding-top: max(1rem, env(safe-area-inset-top));
     padding-right: max(1rem, env(safe-area-inset-right));
     padding-bottom: max(1rem, env(safe-area-inset-bottom));

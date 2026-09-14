@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { emptyWorkoutPayload, nextWorkoutSetIndex, validateWorkoutSaveRequest, type WorkoutSaveInput } from "./workout-record.ts";
+import { emptyWorkoutPayload, elapsedWorkoutTimer, nextWorkoutSetIndex, validateWorkoutSaveRequest, type WorkoutSaveInput } from "./workout-record.ts";
 
 const input: WorkoutSaveInput = {
   journalDate: "2026-09-08",
@@ -35,6 +35,11 @@ const input: WorkoutSaveInput = {
     }],
   },
 };
+
+test("a newly started rest timer never renders a negative second", () => {
+  assert.equal(elapsedWorkoutTimer({ startedAt: "2026-09-14T03:00:00.050Z", elapsedSeconds: 0, running: true }, Date.parse("2026-09-14T03:00:00.000Z")), 0);
+  assert.equal(elapsedWorkoutTimer({ startedAt: "2026-09-14T03:00:00.000Z", elapsedSeconds: 4, running: true }, Date.parse("2026-09-14T03:00:02.100Z")), 6);
+});
 
 test("accepts versioned strength and running workout payloads", () => {
   assert.equal(validateWorkoutSaveRequest(input).success, true);

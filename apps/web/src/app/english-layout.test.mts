@@ -10,6 +10,8 @@ test("generic centered pages do not override full-height capture modules", async
   for (const selector of genericPageSelectors) {
     assert.match(selector, /:not\(\.englishShell\)/);
     assert.match(selector, /:not\(\.specialPlaceholder\)/);
+    assert.match(selector, /:not\(\.foodShell\)/);
+    assert.match(selector, /:not\(\.workoutShell\)/);
   }
 
   const editorRule = css.match(/\.englishEditor\s*\{(?<body>[^}]+)\}/)?.groups?.body ?? "";

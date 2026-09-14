@@ -51,6 +51,11 @@ export type RestTimer = {
   running: boolean;
 };
 
+export function elapsedWorkoutTimer(timer: RestTimer, now: number): number {
+  if (!timer.running || !timer.startedAt) return timer.elapsedSeconds;
+  return timer.elapsedSeconds + Math.max(0, Math.floor((now - Date.parse(timer.startedAt)) / 1_000));
+}
+
 export type WorkoutSession = {
   id: string;
   name: string;

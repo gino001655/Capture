@@ -11,7 +11,7 @@ import type {
   WorkoutSession,
   WorkoutSet,
 } from "../../../web/src/lib/workout-record";
-import { emptyWorkoutPayload, nextWorkoutSetIndex } from "../../../web/src/lib/workout-record";
+import { elapsedWorkoutTimer, emptyWorkoutPayload, nextWorkoutSetIndex } from "../../../web/src/lib/workout-record";
 import type { WorkoutLibraryEntry, WorkoutLibraryPayload, WorkoutLibraryRecord } from "../../../web/src/lib/workout-library";
 import { emptyWorkoutLibrary } from "../../../web/src/lib/workout-library";
 import type { CapturePageDefinition, CapturePageProps } from "./types";
@@ -66,17 +66,20 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
     const cache = readCache(); cache[targetDate] = next; writeCache(cache);
   }, []);
 
+  const syncingDates = useRef(new Set<string>());
   const sync = useCallback(async (targetDate: string, candidate = localRef.current) => {
     if (!candidate.pending || candidate.conflict) return;
+    if (syncingDates.current.has(targetDate)) return;
+    syncingDates.current.add(targetDate);
     try {
       const result = await invoke<SaveResult<WorkoutRecord>>("save_workout_record", { input: {
         journalDate: targetDate, payload: candidate.payload, expectedRevision: candidate.revision, clientUpdatedAt: candidate.clientUpdatedAt,
       } });
       if (result.conflict) { const current = readCache()[targetDate] ?? candidate; publish(targetDate, { ...current, conflict: { cloud: result.record } }); setIssue(true); return; }
       const current = readCache()[targetDate] ?? candidate;
-      if (current.clientUpdatedAt === candidate.clientUpdatedAt) publish(targetDate, { ...current, revision: result.record?.revision ?? null, pending: false, conflict: undefined });
+      if (current.clientUpdatedAt === candidate.clientUpdatedAt) publish(targetDate, { ...current, revision: result.record?.revision ?? null, pending: false, conflict: undefined }); else { const next = { ...current, revision: result.record?.revision ?? null }; publish(targetDate, next); syncDebounceRef.current?.queue(targetDate, next, sync); }
       setIssue(false);
-    } catch { setIssue(true); }
+    } catch { setIssue(true); } finally { syncingDates.current.delete(targetDate); }
   }, [publish]);
 
   const mutate = useCallback((change: (payload: WorkoutPayload) => void) => {
@@ -200,7 +203,7 @@ function WorkoutPage({ requestModeChange }: CapturePageProps) {
     updateSession((target) => { const exercise = target.exercises.find((item) => item.id === id); if (exercise) change(exercise); });
   }
   function elapsed(target: WorkoutSession) {
-    return target.restTimer.elapsedSeconds + (target.restTimer.running && target.restTimer.startedAt ? Math.floor((now - Date.parse(target.restTimer.startedAt)) / 1_000) : 0);
+    return elapsedWorkoutTimer(target.restTimer, now);
   }
 
   return <main className="captureExtensionPage desktopWorkout viewEnter" aria-label="重訓紀錄" tabIndex={0} onKeyDown={keyNavigation}>
