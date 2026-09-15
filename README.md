@@ -8,7 +8,7 @@ This is an early, single-user project. The interface is intentionally compact; i
 
 | Area | Web | Windows | Cloud sync | External processing |
 | --- | --- | --- | --- | --- |
-| Journal / Quick Capture | Yes | Yes | MongoDB | Optional Codex → dated Heptabase Journal |
+| Journal / Quick Capture | Yes | Yes | MongoDB | Optional Codex → dated Heptabase Journal; explicit `續` → fixed Todo card |
 | English | Yes | Yes | MongoDB | Optional Codex → AnkiConnect |
 | Workout / running | Yes | Yes | MongoDB | Not implemented |
 | Food | Yes | Yes | MongoDB | Not implemented |
@@ -31,6 +31,7 @@ Phone or Windows
 
 - Journal records are grouped by their selected Taipei date and become eligible after the 04:00 cutoff. Successful records are locked in Capture; later corrections belong in Heptabase.
 - Past English documents can become Anki notes. Workout and Food currently remain synchronized Capture data.
+- Optional reminders surface recent `續` items around 20:00 and a seven-day review on Sunday. Windows uses native notifications; the installed iPhone PWA uses Web Push.
 - A processing failure never silently discards the source. Failed work remains retryable.
 - The browser and Cloud never receive Heptabase or Anki credentials; those adapters run on the user's Windows computer.
 
@@ -78,6 +79,8 @@ The installed Desktop app can instead save the deployed Web URL and Device Token
 ```powershell
 pnpm.cmd desktop:build
 ```
+
+Web Push additionally requires `CRON_SECRET` and one VAPID key pair in the deployed Web environment. Generate a pair locally with `pnpm.cmd --filter @capture/web generate:vapid`; commit neither private keys nor `.env.local`. Full steps are in [Setup and integrations](docs/setup-and-integrations.md#8-connect-todo-and-reminders).
 
 ## Windows controls
 

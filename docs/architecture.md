@@ -17,6 +17,7 @@ flowchart LR
     D --> H["Heptabase CLI / Desktop"]
     H --> D
     D --> K["AnkiConnect / Anki"]
+    A --> P["Web Push / iPhone PWA"]
 ```
 
 ## Component responsibilities
@@ -55,6 +56,9 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - `GET/PUT /api/special-records/workout/library` for the revision-safe exercise library;
 - `GET/PUT /api/special-records/food` for daily food entries and nutrition targets;
 - `GET/PUT /api/special-records/food/library` for reusable food defaults.
+- `POST /api/todo-deliveries/claim` and `PATCH /api/todo-deliveries/{attemptId}` for independent explicit-`續` appends;
+- `GET /api/reminders/summary` for the authenticated Desktop worker;
+- authenticated Web Push public-key/subscription routes and a `CRON_SECRET`-protected reminder cron.
 
 ### MongoDB Atlas
 
@@ -68,6 +72,8 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Persist revision-safe exercise and food libraries in `specialRecorderSettings`; library entries use stable IDs so later renames preserve historical relationships.
 - Persist Journal delivery state on the source `journalRecords`. One claim leases every eligible idle record for the oldest pending date, preserving oldest-first delivery order without duplicating the raw source data in a second queue.
 - Release abandoned 30-minute Journal leases, delay ordinary failures for 15 minutes, and retain the last error for operator visibility.
+- Persist a separate Todo delivery state on a Journal record only after its normal Journal delivery succeeds and only when its explicit `續` field is non-empty.
+- Store browser Push subscriptions separately from recorder data. The VAPID private key remains deployment configuration, not database content.
 
 ### Desktop application
 
@@ -80,6 +86,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Optionally register the installed app to start hidden with Windows.
 - Discover special Capture pages from `capture-pages/*.page.tsx`. English, Workout, and Food keep immediate local pending caches and reach the Cloud through narrow Tauri commands that reuse the saved Desktop bearer-token configuration.
 - Show the authoritative Journal delivery queue in Worker Status and make `Check now` retry failures immediately.
+- Optionally append explicit `續` content to one user-selected Heptabase card and show native Windows daily/weekly reminders. Reminder state is local per Windows user.
 
 ## Special recorder synchronization boundary
 
@@ -100,6 +107,7 @@ For local development, the API runs at `http://localhost:3000` and uses a server
 - Report legacy processor failures to Cloud, delay ordinary retry for 15 minutes, expose immediate manual retry, and recover abandoned 30-minute processing leases.
 - For Journal batches, first deterministically convert the six Capture areas to approved Markdown. When explicitly enabled, Codex may reorganize the derived Markdown while preserving record order and facts; failures keep the source queued.
 - Read the target Heptabase Journal, then append with its `contentMd5` as a conflict precondition. Cloud records are marked delivered and locked only after the append succeeds.
+- Read the fixed Todo card, detect the stable Capture marker, then append an unchecked Markdown item with `contentMd5`. Capture never replaces or edits existing Todo-card content.
 - A failed Journal append is reported to Cloud and becomes retryable after 15 minutes or immediately through `Check now`.
 - The legacy note processor selects `codex-cli` or deterministic `none` through `AiProvider::write_markdown`; an optional Codex model is configuration rather than hard-coded policy.
 - Prepared Markdown crosses the `CaptureDestination` port; the current Heptabase CLI implementation can be replaced without changing recorder UI, worker scheduling, or Cloud persistence.

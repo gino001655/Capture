@@ -22,6 +22,13 @@ struct CreatedNote {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct NoteReadResult {
+    content: String,
+    content_md5: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct JournalReadResult {
     content: Value,
     content_md5: String,
@@ -148,6 +155,48 @@ pub(crate) fn process_journal_delivery(
     };
 
     HeptabasePaths::discover()?.append_journal(journal_date, &markdown, records.len())
+}
+
+pub(crate) fn create_todo_card() -> Result<String, String> {
+    let destination = HeptabasePaths::discover()?;
+    let note_path = temporary_markdown_path("todo-card");
+    let result = (|| {
+        ensure_heptabase_ready(&destination)?;
+        fs::write(&note_path, "# Capture Todo\n")
+            .map_err(|error| format!("Could not prepare the Todo card: {error}"))?;
+        let note = create_heptabase_note(&destination, &note_path)?;
+        Ok(note.id)
+    })();
+    let _ = fs::remove_file(note_path);
+    result
+}
+
+pub(crate) fn append_todo(
+    card_id: &str,
+    record_id: &str,
+    journal_date: &str,
+    text: &str,
+) -> Result<String, String> {
+    if !is_journal_date(journal_date) || text.trim().is_empty() {
+        return Err("Todo delivery requires a valid date and non-empty text.".to_owned());
+    }
+    let marker = todo_marker(record_id)?;
+    let destination = HeptabasePaths::discover()?;
+    ensure_heptabase_ready(&destination)?;
+    let current = read_heptabase_note(&destination, card_id)?;
+    if current.content.contains(&marker) {
+        return Ok(format!("Todo already present ({marker})"));
+    }
+    let markdown = format_todo_markdown(journal_date, text, &marker)?;
+    let note_path = temporary_markdown_path("todo-append");
+    let result = (|| {
+        fs::write(&note_path, markdown)
+            .map_err(|error| format!("Could not prepare Todo Markdown: {error}"))?;
+        append_heptabase_note(&destination, card_id, &note_path, &current.content_md5)?;
+        Ok(format!("Todo appended ({marker})"))
+    })();
+    let _ = fs::remove_file(note_path);
+    result
 }
 
 impl CaptureDestination for HeptabasePaths {
@@ -279,6 +328,45 @@ fn read_heptabase_journal(
         .map_err(|error| format!("Heptabase Journal read returned invalid JSON: {error}"))
 }
 
+fn read_heptabase_note(paths: &HeptabasePaths, card_id: &str) -> Result<NoteReadResult, String> {
+    let mut command = heptabase_command(paths);
+    command
+        .args(["note", "read", card_id])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command
+        .output()
+        .map_err(|error| format!("Could not read the Heptabase Todo card: {error}"))?;
+    if !output.status.success() {
+        return Err(command_failure("Heptabase Todo read", &output.stderr));
+    }
+    serde_json::from_slice(&output.stdout)
+        .map_err(|error| format!("Heptabase Todo read returned invalid JSON: {error}"))
+}
+
+fn append_heptabase_note(
+    paths: &HeptabasePaths,
+    card_id: &str,
+    note_path: &Path,
+    content_md5: &str,
+) -> Result<(), String> {
+    let mut command = heptabase_command(paths);
+    command
+        .args(["note", "append", card_id, "--content-file"])
+        .arg(note_path)
+        .args(["--content-md5", content_md5])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let output = command
+        .output()
+        .map_err(|error| format!("Could not append the Heptabase Todo card: {error}"))?;
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(command_failure("Heptabase Todo append", &output.stderr))
+    }
+}
+
 fn append_heptabase_journal(
     paths: &HeptabasePaths,
     journal_date: &str,
@@ -350,6 +438,32 @@ fn is_journal_date(value: &str) -> bool {
             byte.is_ascii_digit()
         }
     })
+}
+
+fn todo_marker(record_id: &str) -> Result<String, String> {
+    let compact = record_id.replace('-', "");
+    if compact.len() < 12 || !compact.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("Todo record id must be a UUID-shaped hexadecimal value.".to_owned());
+    }
+    Ok(format!("Capture·{}", &compact[..12]))
+}
+
+fn format_todo_markdown(journal_date: &str, text: &str, marker: &str) -> Result<String, String> {
+    let mut lines = text.lines().map(str::trim).filter(|line| !line.is_empty());
+    let first = lines
+        .next()
+        .ok_or_else(|| "Todo content cannot be empty.".to_owned())?;
+    let compact_date = journal_date
+        .get(5..)
+        .unwrap_or(journal_date)
+        .replace('-', "/");
+    let mut markdown = format!("- [ ] {first}\n  - {compact_date} · {marker}");
+    for line in lines {
+        markdown.push_str("\n  - ");
+        markdown.push_str(line.trim_start_matches(['-', '*', '+', ' ']));
+    }
+    markdown.push('\n');
+    Ok(markdown)
 }
 
 fn format_journal_records(records: &[JournalRecordForDelivery]) -> String {
@@ -465,8 +579,8 @@ fn hide_console_window(_command: &mut Command) {}
 #[cfg(test)]
 mod tests {
     use super::{
-        command_failure, format_journal_records, journal_has_content, CreatedNote,
-        JournalAreasForDelivery, JournalRecordForDelivery,
+        command_failure, format_journal_records, format_todo_markdown, journal_has_content,
+        todo_marker, CreatedNote, JournalAreasForDelivery, JournalRecordForDelivery,
     };
     use serde_json::json;
 
@@ -485,6 +599,16 @@ mod tests {
         assert_eq!(
             command_failure("Codex CLI", b"network unavailable\n"),
             "Codex CLI failed: network unavailable"
+        );
+    }
+
+    #[test]
+    fn todo_markdown_is_checkable_nested_and_idempotently_marked() {
+        let marker = todo_marker("11111111-1111-4111-8111-111111111111").expect("marker");
+        assert_eq!(marker, "Capture·111111111111");
+        assert_eq!(
+            format_todo_markdown("2026-09-15", "寄出文件\n- 確認附件", &marker).expect("markdown"),
+            "- [ ] 寄出文件\n  - 09/15 · Capture·111111111111\n  - 確認附件\n"
         );
     }
 

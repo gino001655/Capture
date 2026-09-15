@@ -107,6 +107,9 @@ function createHarness() {
         if (update.$inc?.deliveryAttempts !== undefined) {
           next.deliveryAttempts = (next.deliveryAttempts ?? 0) + update.$inc.deliveryAttempts;
         }
+        if (update.$inc?.todoDeliveryAttempts !== undefined) {
+          next.todoDeliveryAttempts = (next.todoDeliveryAttempts ?? 0) + update.$inc.todoDeliveryAttempts;
+        }
         documents.set(id, next);
         modifiedCount += 1;
       }
@@ -122,8 +125,15 @@ function createHarness() {
 
       const next = structuredClone(existing);
       if (update.$set !== undefined) Object.assign(next, update.$set);
-      if (update.$unset?.deletedAt !== undefined) delete next.deletedAt;
+      if (update.$unset !== undefined) {
+        for (const key of Object.keys(update.$unset)) {
+          delete (next as unknown as Record<string, unknown>)[key];
+        }
+      }
       if (update.$inc?.revision !== undefined) next.revision += update.$inc.revision;
+      if (update.$inc?.todoDeliveryAttempts !== undefined) {
+        next.todoDeliveryAttempts = (next.todoDeliveryAttempts ?? 0) + update.$inc.todoDeliveryAttempts;
+      }
       documents.set(next._id, next);
       return structuredClone(next);
     },
@@ -488,6 +498,29 @@ test("claims one eligible date oldest-first and delivers the claimed records tog
   assert.equal(documents.get(older.id)?.deliveryState, "delivered");
   assert.equal(documents.get(newer.id)?.deliveryState, "delivered");
   assert.equal(documents.get(older.id)?.deliveryAttemptId, undefined);
+});
+
+test("queues only explicit continuation fields for independent Todo delivery", async () => {
+  const { store, clock, documents } = createHarness();
+  const action = await store.create({ ...createInput(IDS.older), areas: areasWith("event", "寄出文件") });
+  await store.update(action.id, updateInput({
+    expectedRevision: 0,
+    areas: areasWith("event", "寄出文件"),
+  }));
+  clock.advance(24 * 60 * 60 * 1_000);
+  const journal = await store.claimDelivery(clock.now());
+  assert.ok(journal);
+  await store.completeDelivery(journal.attemptId, "journal-ok");
+  assert.equal(documents.get(action.id)?.todoDeliveryState, "pending");
+
+  const todo = await store.claimTodoDelivery(clock.now());
+  assert.equal(todo?.record.id, action.id);
+  assert.equal(todo?.record.areas.event, "寄出文件");
+  assert.equal(documents.get(action.id)?.todoDeliveryState, "processing");
+
+  const completed = await store.completeTodoDelivery(todo!.attemptId, "todo-ok");
+  assert.equal(completed?.todoDeliveryState, "delivered");
+  assert.equal(await store.claimTodoDelivery(clock.now()), undefined);
 });
 
 test("returns a failed delivery to the queue with a fifteen-minute retry time", async () => {

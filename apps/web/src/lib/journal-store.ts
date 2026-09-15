@@ -24,7 +24,7 @@ type JournalFilter = Record<string, unknown>;
 type JournalUpdate = {
   $setOnInsert?: JournalDocument;
   $set?: Partial<JournalDocument>;
-  $inc?: Partial<Record<"revision" | "deliveryAttempts", number>>;
+  $inc?: Partial<Record<"revision" | "deliveryAttempts" | "todoDeliveryAttempts", number>>;
   $unset?: Record<string, "">;
 };
 
@@ -89,6 +89,11 @@ export type JournalDeliveryClaim = {
 export type JournalDeliveryResult = {
   journalDate: string;
   recordCount: number;
+};
+
+export type TodoDeliveryClaim = {
+  attemptId: string;
+  record: JournalRecord;
 };
 
 export type JournalDeliveryDateStatus = {
@@ -490,7 +495,94 @@ export class JournalStore {
       },
     );
 
+    for (const record of claimed) {
+      if (!record.areas.event.trim()) continue;
+      await collection.updateMany(
+        { _id: record._id, todoDeliveryState: { $exists: false } },
+        { $set: { todoDeliveryState: "pending" } },
+      );
+    }
+
     return { journalDate: claimed[0].journalDate, recordCount: claimed.length };
+  }
+
+  async claimTodoDelivery(now = this.now()): Promise<TodoDeliveryClaim | undefined> {
+    const collection = await this.getCollection();
+    const timestamp = now.toISOString();
+    const leaseExpiredAt = new Date(now.getTime() - JOURNAL_DELIVERY_LEASE_MS).toISOString();
+    await collection.updateMany(
+      { todoDeliveryState: "processing", todoDeliveryClaimedAt: { $lte: leaseExpiredAt } },
+      {
+        $set: {
+          todoDeliveryState: "pending",
+          todoDeliveryError: "The previous Todo delivery lease expired before completion.",
+          nextTodoDeliveryAttemptAt: timestamp,
+        },
+        $unset: { todoDeliveryAttemptId: "", todoDeliveryClaimedAt: "" },
+      },
+    );
+    const attemptId = randomUUID();
+    const record = await collection.findOneAndUpdate(
+      {
+        todoDeliveryState: "pending",
+        deliveryState: "delivered",
+        deletedAt: { $exists: false },
+        $or: [
+          { nextTodoDeliveryAttemptAt: { $exists: false } },
+          { nextTodoDeliveryAttemptAt: { $lte: timestamp } },
+        ],
+      },
+      {
+        $set: {
+          todoDeliveryState: "processing",
+          todoDeliveryAttemptId: attemptId,
+          todoDeliveryClaimedAt: timestamp,
+        },
+        $unset: { todoDeliveryError: "", nextTodoDeliveryAttemptAt: "" },
+        $inc: { todoDeliveryAttempts: 1 },
+      },
+      { returnDocument: "after" },
+    );
+    return record ? { attemptId, record: toJournalRecord(record) } : undefined;
+  }
+
+  async completeTodoDelivery(attemptId: string, result: string): Promise<JournalRecord | undefined> {
+    const timestamp = this.now().toISOString();
+    const record = await (await this.getCollection()).findOneAndUpdate(
+      { todoDeliveryState: "processing", todoDeliveryAttemptId: attemptId },
+      {
+        $set: {
+          todoDeliveryState: "delivered",
+          todoDeliveredAt: timestamp,
+          todoDeliveryResult: result,
+        },
+        $unset: {
+          todoDeliveryAttemptId: "",
+          todoDeliveryClaimedAt: "",
+          todoDeliveryError: "",
+          nextTodoDeliveryAttemptAt: "",
+        },
+      },
+      { returnDocument: "after" },
+    );
+    return record ? toJournalRecord(record) : undefined;
+  }
+
+  async failTodoDelivery(attemptId: string, error: string): Promise<JournalRecord | undefined> {
+    const now = this.now();
+    const record = await (await this.getCollection()).findOneAndUpdate(
+      { todoDeliveryState: "processing", todoDeliveryAttemptId: attemptId },
+      {
+        $set: {
+          todoDeliveryState: "pending",
+          todoDeliveryError: error.slice(0, 2_000),
+          nextTodoDeliveryAttemptAt: new Date(now.getTime() + JOURNAL_DELIVERY_RETRY_MS).toISOString(),
+        },
+        $unset: { todoDeliveryAttemptId: "", todoDeliveryClaimedAt: "" },
+      },
+      { returnDocument: "after" },
+    );
+    return record ? toJournalRecord(record) : undefined;
   }
 
   async failDelivery(

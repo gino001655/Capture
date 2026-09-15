@@ -34,6 +34,9 @@ type ConnectionSettings = {
   ankiEnabled: boolean;
   ankiConnectUrl: string;
   ankiDeck: string;
+  todoEnabled: boolean;
+  todoCardId: string | null;
+  desktopRemindersEnabled: boolean;
 };
 
 type TrashedJournalRecord = {
@@ -91,6 +94,9 @@ function WorkerView() {
     ankiEnabled: false,
     ankiConnectUrl: "http://127.0.0.1:8765",
     ankiDeck: "English",
+    todoEnabled: false,
+    todoCardId: null,
+    desktopRemindersEnabled: false,
   });
   const [apiBaseUrl, setApiBaseUrl] = useState("http://localhost:3000");
   const [deviceToken, setDeviceToken] = useState("");
@@ -100,6 +106,11 @@ function WorkerView() {
   const [ankiEnabled, setAnkiEnabled] = useState(false);
   const [ankiConnectUrl, setAnkiConnectUrl] = useState("http://127.0.0.1:8765");
   const [ankiDeck, setAnkiDeck] = useState("English");
+  const [todoEnabled, setTodoEnabled] = useState(false);
+  const [todoCardId, setTodoCardId] = useState("");
+  const [desktopRemindersEnabled, setDesktopRemindersEnabled] = useState(false);
+  const [testingTodo, setTestingTodo] = useState(false);
+  const [todoResult, setTodoResult] = useState<string | null>(null);
   const [savingProcessing, setSavingProcessing] = useState(false);
   const [testingAnki, setTestingAnki] = useState(false);
   const [ankiTestResult, setAnkiTestResult] = useState<string | null>(null);
@@ -152,6 +163,9 @@ function WorkerView() {
       setAnkiEnabled(settings.ankiEnabled);
       setAnkiConnectUrl(settings.ankiConnectUrl);
       setAnkiDeck(settings.ankiDeck);
+      setTodoEnabled(settings.todoEnabled);
+      setTodoCardId(settings.todoCardId ?? "");
+      setDesktopRemindersEnabled(settings.desktopRemindersEnabled);
     });
 
     const intervalId = window.setInterval(() => {
@@ -259,6 +273,9 @@ function WorkerView() {
         ankiEnabled,
         ankiConnectUrl,
         ankiDeck,
+        todoEnabled,
+        todoCardId: todoCardId.trim() || null,
+        desktopRemindersEnabled,
       });
       setConnection(settings);
       setAiProvider(settings.aiProvider);
@@ -267,6 +284,9 @@ function WorkerView() {
       setAnkiEnabled(settings.ankiEnabled);
       setAnkiConnectUrl(settings.ankiConnectUrl);
       setAnkiDeck(settings.ankiDeck);
+      setTodoEnabled(settings.todoEnabled);
+      setTodoCardId(settings.todoCardId ?? "");
+      setDesktopRemindersEnabled(settings.desktopRemindersEnabled);
       await refreshDeliveryStatus();
     } catch (error) {
       setSettingError(
@@ -287,6 +307,32 @@ function WorkerView() {
       setSettingError(typeof error === "string" ? error : "Could not send the Anki test card.");
     } finally {
       setTestingAnki(false);
+    }
+  }
+
+  async function createTodoCard() {
+    setSettingError(null);
+    setTodoResult(null);
+    setTestingTodo(true);
+    try {
+      const cardId = await invoke<string>("create_heptabase_todo_card");
+      setTodoCardId(cardId);
+      setTodoEnabled(true);
+      setTodoResult("Created Capture Todo. Save Processing to enable delivery.");
+    } catch (error) {
+      setSettingError(typeof error === "string" ? error : "Could not create the Todo card.");
+    } finally {
+      setTestingTodo(false);
+    }
+  }
+
+  async function sendReminderTest() {
+    setSettingError(null);
+    try {
+      await invoke("send_desktop_reminder_test");
+      setTodoResult("Windows test notification sent.");
+    } catch (error) {
+      setSettingError(typeof error === "string" ? error : "Could not send a test notification.");
     }
   }
 
@@ -492,6 +538,33 @@ function WorkerView() {
               disabled={!ankiEnabled || connection.source === "environment"}
             />
           </label>
+          <label className="settingToggle compactSettingToggle">
+            <input
+              type="checkbox"
+              checked={todoEnabled}
+              onChange={(event) => setTodoEnabled(event.target.checked)}
+              disabled={connection.source === "environment" || !todoCardId.trim()}
+            />
+            Append explicit + continuations to Heptabase Todo
+          </label>
+          <label>
+            Heptabase Todo card UUID
+            <input
+              value={todoCardId}
+              onChange={(event) => setTodoCardId(event.target.value)}
+              placeholder="Create a card or paste its UUID"
+              disabled={connection.source === "environment"}
+            />
+          </label>
+          <label className="settingToggle compactSettingToggle">
+            <input
+              type="checkbox"
+              checked={desktopRemindersEnabled}
+              onChange={(event) => setDesktopRemindersEnabled(event.target.checked)}
+              disabled={connection.source === "environment"}
+            />
+            Windows reminders at 20:00; weekly review on Sunday
+          </label>
           <div className="connectionFooter">
             <small>
               {connection.source === "environment"
@@ -506,6 +579,12 @@ function WorkerView() {
             >
               {testingAnki ? "Sending test..." : "Send Anki test card"}
             </button>
+            <button type="button" className="secondaryButton" disabled={testingTodo} onClick={createTodoCard}>
+              {testingTodo ? "Creating..." : "Create Todo card"}
+            </button>
+            <button type="button" className="secondaryButton" onClick={sendReminderTest}>
+              Test notification
+            </button>
             <button
               type="submit"
               disabled={savingProcessing || !connection.tokenConfigured || connection.source === "environment"}
@@ -514,6 +593,7 @@ function WorkerView() {
             </button>
           </div>
           {ankiTestResult ? <small role="status">{ankiTestResult}</small> : null}
+          {todoResult ? <small role="status">{todoResult}</small> : null}
         </form>
       </details>
 

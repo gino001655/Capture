@@ -41,6 +41,7 @@ import {
   JournalToolbar,
 } from "./journal-view";
 import { ModuleRail, type CaptureModule } from "./module-rail";
+import { NotificationSettings } from "./notification-settings";
 
 type ConfirmAction = "abandon" | null;
 type DateSlideDirection = "previous" | "next" | null;
@@ -418,6 +419,7 @@ export function JournalApp({
               <legend>主題</legend>
               <label><input type="radio" name="theme" checked={theme === "light"} onChange={() => chooseTheme("light")} />淺色</label>
               <label><input type="radio" name="theme" checked={theme === "dark"} onChange={() => chooseTheme("dark")} />深色</label>
+              <NotificationSettings />
             </fieldset>
             <section className="trashSettings">
               <button type="button" className="trashHeading" onClick={() => setTrashOpen((open) => !open)}>

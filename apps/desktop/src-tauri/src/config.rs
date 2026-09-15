@@ -21,6 +21,12 @@ pub(crate) struct WorkerConfig {
     pub(crate) anki_connect_url: String,
     #[serde(default = "default_anki_deck")]
     pub(crate) anki_deck: String,
+    #[serde(default)]
+    pub(crate) todo_enabled: bool,
+    #[serde(default)]
+    pub(crate) todo_card_id: Option<String>,
+    #[serde(default)]
+    pub(crate) desktop_reminders_enabled: bool,
 }
 
 impl WorkerConfig {
@@ -40,6 +46,11 @@ impl WorkerConfig {
                     env::var("CAPTURE_ANKI_CONNECT_URL")
                         .unwrap_or_else(|_| default_anki_connect_url()),
                     env::var("CAPTURE_ANKI_DECK").unwrap_or_else(|_| default_anki_deck()),
+                )?
+                .with_todo(
+                    env_flag("CAPTURE_TODO_ENABLED"),
+                    env::var("CAPTURE_TODO_CARD_ID").ok(),
+                    env_flag("CAPTURE_DESKTOP_REMINDERS_ENABLED"),
                 );
         }
 
@@ -58,6 +69,11 @@ impl WorkerConfig {
                 stored.anki_enabled,
                 stored.anki_connect_url,
                 stored.anki_deck,
+            )?
+            .with_todo(
+                stored.todo_enabled,
+                stored.todo_card_id,
+                stored.desktop_reminders_enabled,
             )
     }
 
@@ -79,6 +95,9 @@ impl WorkerConfig {
         anki_enabled: bool,
         anki_connect_url: String,
         anki_deck: String,
+        todo_enabled: bool,
+        todo_card_id: Option<String>,
+        desktop_reminders_enabled: bool,
     ) -> Result<Self, String> {
         let config = Self::load(app)?
             .with_ai(ai_provider, ai_model)?
@@ -87,7 +106,8 @@ impl WorkerConfig {
                 anki_enabled,
                 anki_connect_url,
                 anki_deck,
-            )?;
+            )?
+            .with_todo(todo_enabled, todo_card_id, desktop_reminders_enabled)?;
         Self::persist(app, &config)?;
         Ok(config)
     }
@@ -124,6 +144,9 @@ impl WorkerConfig {
                 anki_enabled: config.anki_enabled,
                 anki_connect_url: config.anki_connect_url,
                 anki_deck: config.anki_deck,
+                todo_enabled: config.todo_enabled,
+                todo_card_id: config.todo_card_id,
+                desktop_reminders_enabled: config.desktop_reminders_enabled,
             },
             Err(_) => ConnectionSettingsSummary {
                 api_base_url: env::var("CAPTURE_API_BASE_URL")
@@ -138,6 +161,9 @@ impl WorkerConfig {
                 anki_connect_url: env::var("CAPTURE_ANKI_CONNECT_URL")
                     .unwrap_or_else(|_| default_anki_connect_url()),
                 anki_deck: env::var("CAPTURE_ANKI_DECK").unwrap_or_else(|_| default_anki_deck()),
+                todo_enabled: env_flag("CAPTURE_TODO_ENABLED"),
+                todo_card_id: env::var("CAPTURE_TODO_CARD_ID").ok(),
+                desktop_reminders_enabled: env_flag("CAPTURE_DESKTOP_REMINDERS_ENABLED"),
             },
         }
     }
@@ -163,6 +189,9 @@ impl WorkerConfig {
             anki_enabled: false,
             anki_connect_url: default_anki_connect_url(),
             anki_deck: default_anki_deck(),
+            todo_enabled: false,
+            todo_card_id: None,
+            desktop_reminders_enabled: false,
         })
     }
 
@@ -210,6 +239,30 @@ impl WorkerConfig {
         Ok(self)
     }
 
+    fn with_todo(
+        mut self,
+        enabled: bool,
+        card_id: Option<String>,
+        desktop_reminders_enabled: bool,
+    ) -> Result<Self, String> {
+        let card_id = card_id
+            .map(|value| value.trim().to_owned())
+            .filter(|value| !value.is_empty());
+        if enabled && card_id.as_deref().is_none_or(|value| !is_uuid(value)) {
+            return Err(
+                "A valid Heptabase Todo card UUID is required when Todo delivery is enabled."
+                    .to_owned(),
+            );
+        }
+        if card_id.as_deref().is_some_and(|value| !is_uuid(value)) {
+            return Err("Heptabase Todo card id must be a UUID.".to_owned());
+        }
+        self.todo_enabled = enabled;
+        self.todo_card_id = card_id;
+        self.desktop_reminders_enabled = desktop_reminders_enabled;
+        Ok(self)
+    }
+
     pub(crate) fn endpoint(&self, path: &str) -> String {
         format!("{}/{}", self.api_base_url, path.trim_start_matches('/'))
     }
@@ -227,6 +280,9 @@ pub(crate) struct ConnectionSettingsSummary {
     pub(crate) anki_enabled: bool,
     pub(crate) anki_connect_url: String,
     pub(crate) anki_deck: String,
+    pub(crate) todo_enabled: bool,
+    pub(crate) todo_card_id: Option<String>,
+    pub(crate) desktop_reminders_enabled: bool,
 }
 
 fn default_ai_provider() -> String {
@@ -239,6 +295,14 @@ fn default_anki_connect_url() -> String {
 
 fn default_anki_deck() -> String {
     "English".to_owned()
+}
+
+fn is_uuid(value: &str) -> bool {
+    value.len() == 36
+        && value.bytes().enumerate().all(|(index, byte)| match index {
+            8 | 13 | 18 | 23 => byte == b'-',
+            _ => byte.is_ascii_hexdigit(),
+        })
 }
 
 fn env_flag(name: &str) -> bool {

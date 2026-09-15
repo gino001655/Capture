@@ -4,6 +4,7 @@ mod config;
 mod destination;
 mod journal;
 mod processor;
+mod reminders;
 mod special;
 mod window_position;
 mod worker;
@@ -24,6 +25,7 @@ use tauri::{
 };
 use tauri_plugin_autostart::{MacosLauncher, ManagerExt as AutostartManagerExt};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
+use tauri_plugin_notification::NotificationExt;
 
 use crate::{
     config::{ConnectionSettingsSummary, WorkerConfig},
@@ -125,7 +127,11 @@ async fn run_worker_check(app: AppHandle, runtime: Arc<WorkerRuntime>) -> Worker
     emit_snapshot(&app, &checking_snapshot);
 
     let result = match WorkerConfig::load(&app) {
-        Ok(config) => worker::check_for_work(&config).await,
+        Ok(config) => {
+            let result = worker::check_for_work(&config).await;
+            let _ = reminders::maybe_send(&app, &config).await;
+            result
+        }
         Err(error) => Err(error),
     };
 
@@ -354,6 +360,23 @@ async fn send_anki_test_card(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+async fn create_heptabase_todo_card() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(processor::create_todo_card)
+        .await
+        .map_err(|error| format!("Todo card creation stopped unexpectedly: {error}"))?
+}
+
+#[tauri::command]
+fn send_desktop_reminder_test(app: AppHandle) -> Result<(), String> {
+    app.notification()
+        .builder()
+        .title("Capture")
+        .body("通知已連接。之後會在這裡提醒最近的續與每週回顧。")
+        .show()
+        .map_err(|error| format!("Could not show the Windows notification: {error}"))
+}
+
+#[tauri::command]
 async fn retry_failed_journal_deliveries(app: AppHandle) -> Result<(), String> {
     let config = WorkerConfig::load(&app)?;
     worker::retry_failed_journal_deliveries(&config).await
@@ -383,6 +406,9 @@ fn save_processing_settings(
     anki_enabled: bool,
     anki_connect_url: String,
     anki_deck: String,
+    todo_enabled: bool,
+    todo_card_id: Option<String>,
+    desktop_reminders_enabled: bool,
 ) -> Result<ConnectionSettingsSummary, String> {
     WorkerConfig::save_processing(
         &app,
@@ -392,6 +418,9 @@ fn save_processing_settings(
         anki_enabled,
         anki_connect_url,
         anki_deck,
+        todo_enabled,
+        todo_card_id,
+        desktop_reminders_enabled,
     )?;
     Ok(WorkerConfig::summary(&app))
 }
@@ -441,6 +470,7 @@ pub fn run() {
     let runtime = Arc::new(WorkerRuntime::new());
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(runtime.clone())
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             show_window(app, "main");
@@ -504,6 +534,8 @@ pub fn run() {
             get_journal_delivery_status,
             get_english_delivery_status,
             send_anki_test_card,
+            create_heptabase_todo_card,
+            send_desktop_reminder_test,
             retry_failed_journal_deliveries,
             get_connection_settings,
             save_connection_settings,

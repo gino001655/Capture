@@ -8,6 +8,7 @@ This guide connects a personal Capture deployment from Web input to MongoDB and 
 | --- | --- | --- | --- |
 | Legacy generic capture API | MongoDB | Codex CLI or deterministic Markdown | New Heptabase card |
 | Journal | MongoDB, revision-safe queue | Deterministic formatter, optional Codex organization | Append to that date's Heptabase Journal |
+| Explicit Journal `續` | MongoDB, independent retry state | Deterministic checklist formatter | Append to one fixed Heptabase Todo card |
 | English | MongoDB, revision-safe queue and receipts | Optional Codex note generation | AnkiConnect `English_AI` notes and sync |
 | Workout / running | MongoDB | Not implemented | No external destination |
 | Food | MongoDB | Not implemented | No external destination |
@@ -35,6 +36,8 @@ Copy `apps/web/.env.example` to `apps/web/.env.local`. Never commit the resultin
 - `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`: credentials for the Google sign-in application.
 - `AUTHORIZED_EMAIL`: the only account allowed into this personal deployment.
 - `CAPTURE_DEVICE_TOKEN`: a random value of at least 32 characters, shared only with the Desktop worker.
+- `CRON_SECRET`: a separate random value of at least 32 characters used only by the deployed reminder cron.
+- `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY`: the Web Push identity generated in section 8. The private key is a deployment secret.
 
 Set the same variables in the deployment platform. Use separate databases and secrets for development and production when both contain data worth preserving.
 
@@ -103,7 +106,35 @@ If processing fails, the raw MongoDB record remains undelivered and visible in t
 
 Today's English document is never claimed. After the 04:00 Taipei boundary, older documents become eligible. A failed AI, AnkiConnect, add, or sync call retains the Cloud source and retries after 15 minutes or on **Check now**. External Anki verification remains required because automated tests use the adapter contract without modifying a real collection.
 
-## 8. Keyboard operation
+## 8. Connect Todo and reminders
+
+The Todo path is deliberately separate from AI organization. Only text explicitly entered in Journal's `續` field is copied; AI-inferred future actions are not. A source record first completes its normal Journal delivery, then its `續` text gets an independent retryable Todo append. The append includes a short stable `Capture·…` marker so a retry can recognize an already-written item.
+
+### Fixed Heptabase Todo card and Windows reminders
+
+1. Open Worker Status → **Processing** while Heptabase Desktop is available.
+2. Choose **Create Todo card** once, or paste the UUID of an existing card. Creation makes a card titled `Capture Todo` and returns its UUID.
+3. Enable **Append explicit 續 to Todo** and **Windows reminders**, then save.
+4. Use **Test notification** to verify Windows notifications. Keep the tray worker running; after 20:00 Taipei it checks at the normal five-minute worker interval and sends at most one reminder per day. On Sunday it also mentions the recent-seven-day review.
+5. Complete a disposable Journal record containing `續`, wait until it is eligible for Journal delivery, choose **Check now**, and verify one unchecked item appears in the fixed card.
+
+The integration only appends. Capture never checks, deletes, reorders, or replaces Todo items; manage them directly in Heptabase.
+
+### iPhone Home Screen reminders
+
+1. Generate one VAPID pair locally:
+
+   ```powershell
+   pnpm.cmd --filter @capture/web generate:vapid
+   ```
+
+2. Add the printed public/private values and a separate `CRON_SECRET` to the deployed Web environment, then redeploy. Never commit the private key.
+3. Open the deployed app in Safari, add it to the Home Screen, launch that installed app, then open Journal settings → **提醒** → **啟用手機提醒**. iPhone Web Push requires a Home Screen web app and iOS 16.4 or later.
+4. Choose whether notification previews may contain the captured `續` text. Turning that option off sends only a count.
+
+The bundled Vercel cron runs once daily at `12:00 UTC` (about 20:00 Taipei). Vercel may not execute Hobby cron at an exact minute. Push subscriptions are stored server-side; disabling reminders unsubscribes that browser and removes its endpoint.
+
+## 9. Keyboard operation
 
 - `Ctrl + Numpad 5`: open Quick Capture.
 - `Ctrl + NumLock` or `Ctrl + Pause`: show or hide Worker Status.
@@ -116,7 +147,7 @@ Today's English document is never claimed. After the 04:00 Taipei boundary, olde
 
 Focus movement scrolls the selected control into view. A new workout exercise or food entry opens expanded; existing entries can remain collapsed for scanning.
 
-## 9. Before publishing a fork
+## 10. Before publishing a fork
 
 - Run `pnpm.cmd lint`, `pnpm.cmd typecheck`, `pnpm.cmd test`, and both builds.
 - Confirm `.env.local`, `connection.json`, `node_modules`, `.next`, `dist`, and `target` are untracked.

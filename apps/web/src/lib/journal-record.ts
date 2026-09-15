@@ -13,6 +13,7 @@ export type JournalAreaKey = (typeof JOURNAL_AREA_KEYS)[number];
 export type JournalAreas = Record<JournalAreaKey, string>;
 export type DeliveryState = "undelivered" | "processing" | "delivered";
 export type EditingState = "active" | "idle";
+export type TodoDeliveryState = "pending" | "processing" | "delivered";
 
 export type JournalRecord = {
   id: string;
@@ -32,6 +33,14 @@ export type JournalRecord = {
   nextDeliveryAttemptAt?: string;
   deliveredAt?: string;
   deliveryResult?: string;
+  todoDeliveryState?: TodoDeliveryState;
+  todoDeliveryAttemptId?: string;
+  todoDeliveryClaimedAt?: string;
+  todoDeliveryAttempts?: number;
+  todoDeliveryError?: string;
+  nextTodoDeliveryAttemptAt?: string;
+  todoDeliveredAt?: string;
+  todoDeliveryResult?: string;
 };
 
 export type TrashedJournalRecord = JournalRecord & {

@@ -41,6 +41,30 @@ self.addEventListener("message", (event) => {
   );
 });
 
+self.addEventListener("push", (event) => {
+  let payload = { title: "Capture", body: "有新的回顧提醒。", url: "/" };
+  try {
+    payload = { ...payload, ...event.data?.json() };
+  } catch {
+    // Keep the generic notification when a provider sends malformed data.
+  }
+  event.waitUntil(self.registration.showNotification(payload.title, {
+    body: payload.body,
+    icon: "/capture-logo.png",
+    badge: "/capture-logo.png",
+    data: { url: payload.url },
+  }));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target = new URL(event.notification.data?.url ?? "/", self.location.origin).href;
+  event.waitUntil(self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+    const existing = clients.find((client) => client.url.startsWith(self.location.origin));
+    return existing ? existing.focus() : self.clients.openWindow(target);
+  }));
+});
+
 self.addEventListener("fetch", (event) => {
   const request = event.request;
   const url = new URL(request.url);

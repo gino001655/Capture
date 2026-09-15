@@ -633,6 +633,29 @@ button:disabled {
   font-size: 0.9rem;
 }
 
+.notificationSettings {
+  display: grid;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border);
+}
+
+.notificationSettings p,
+.notificationSettings small {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.55;
+}
+
+.notificationSettings button {
+  min-height: 40px;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+}
+
 .journalSettings .accountControls {
   display: flex;
   align-items: center;

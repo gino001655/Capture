@@ -19,6 +19,11 @@ struct EnglishDeliveryClaimResponse {
 }
 
 #[derive(Deserialize)]
+struct TodoDeliveryClaimResponse {
+    delivery: Option<TodoDelivery>,
+}
+
+#[derive(Deserialize)]
 struct JournalDeliveryStatusResponse {
     delivery: JournalDeliveryStatus,
 }
@@ -26,6 +31,19 @@ struct JournalDeliveryStatusResponse {
 #[derive(Deserialize)]
 struct EnglishDeliveryStatusResponse {
     delivery: EnglishDeliveryStatus,
+}
+
+#[derive(Deserialize)]
+struct ReminderSummaryResponse {
+    summary: ReminderSummary,
+}
+
+#[derive(Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ReminderSummary {
+    pub(crate) continuation_count: usize,
+    pub(crate) continuations: Vec<String>,
+    pub(crate) journal_count: usize,
 }
 
 #[derive(Clone, Deserialize, Serialize)]
@@ -74,6 +92,26 @@ struct EnglishDelivery {
 #[derive(Deserialize)]
 struct EnglishDeliveryPayload {
     text: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoDelivery {
+    attempt_id: String,
+    record: TodoRecord,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TodoRecord {
+    id: String,
+    journal_date: String,
+    areas: TodoAreas,
+}
+
+#[derive(Deserialize)]
+struct TodoAreas {
+    event: String,
 }
 
 #[derive(Deserialize)]
@@ -233,6 +271,61 @@ async fn check_one(config: &WorkerConfig) -> Result<WorkerReport, String> {
                     )),
                 };
             }
+        }
+    }
+
+    if config.todo_enabled {
+        let todo_response = client
+            .post(config.endpoint("api/todo-deliveries/claim"))
+            .bearer_auth(&config.device_token)
+            .send()
+            .await
+            .map_err(|error| format!("Could not reach the Todo delivery API: {error}"))?
+            .error_for_status()
+            .map_err(|error| format!("Todo delivery claim failed: {error}"))?
+            .json::<TodoDeliveryClaimResponse>()
+            .await
+            .map_err(|error| format!("Todo delivery claim response was invalid: {error}"))?;
+        if let Some(delivery) = todo_response.delivery {
+            let attempt_id = delivery.attempt_id.clone();
+            let date = delivery.record.journal_date.clone();
+            let card_id = config
+                .todo_card_id
+                .clone()
+                .ok_or_else(|| "Todo delivery is enabled without a card id.".to_owned())?;
+            let result = tauri::async_runtime::spawn_blocking(move || {
+                processor::append_todo(
+                    &card_id,
+                    &delivery.record.id,
+                    &delivery.record.journal_date,
+                    &delivery.record.areas.event,
+                )
+            })
+            .await
+            .map_err(|error| format!("The Todo processor stopped unexpectedly: {error}"))?;
+            let report = match &result {
+                Ok(value) => JournalDeliveryReportRequest {
+                    outcome: "completed",
+                    result: Some(value),
+                    error: None,
+                },
+                Err(error) => JournalDeliveryReportRequest {
+                    outcome: "failed",
+                    result: None,
+                    error: Some(error),
+                },
+            };
+            report_todo_delivery(&client, config, &attempt_id, report).await?;
+            return match result {
+                Ok(_) => Ok(WorkerReport {
+                    outcome: "processed",
+                    message: format!("Appended {date} continuation to the Heptabase Todo card."),
+                    job_id: Some(attempt_id),
+                }),
+                Err(error) => Err(format!(
+                    "Todo delivery for {date} failed and will retry: {error}"
+                )),
+            };
         }
     }
 
@@ -417,6 +510,24 @@ async fn report_english_delivery(
     Ok(())
 }
 
+async fn report_todo_delivery(
+    client: &Client,
+    config: &WorkerConfig,
+    attempt_id: &str,
+    report: JournalDeliveryReportRequest<'_>,
+) -> Result<(), String> {
+    client
+        .patch(config.endpoint(&format!("api/todo-deliveries/{attempt_id}")))
+        .bearer_auth(&config.device_token)
+        .json(&report)
+        .send()
+        .await
+        .map_err(|error| format!("Could not report the Todo delivery: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Todo delivery report failed: {error}"))?;
+    Ok(())
+}
+
 pub(crate) async fn get_journal_delivery_status(
     config: &WorkerConfig,
 ) -> Result<JournalDeliveryStatus, String> {
@@ -456,6 +567,21 @@ pub(crate) async fn get_english_delivery_status(
         .await
         .map(|response| response.delivery)
         .map_err(|error| format!("English delivery status response was invalid: {error}"))
+}
+
+pub(crate) async fn get_reminder_summary(config: &WorkerConfig) -> Result<ReminderSummary, String> {
+    Client::new()
+        .get(config.endpoint("api/reminders/summary"))
+        .bearer_auth(&config.device_token)
+        .send()
+        .await
+        .map_err(|error| format!("Could not reach the reminder API: {error}"))?
+        .error_for_status()
+        .map_err(|error| format!("Reminder summary failed: {error}"))?
+        .json::<ReminderSummaryResponse>()
+        .await
+        .map(|response| response.summary)
+        .map_err(|error| format!("Reminder summary response was invalid: {error}"))
 }
 
 pub(crate) async fn retry_failed_journal_deliveries(config: &WorkerConfig) -> Result<(), String> {

@@ -1,6 +1,6 @@
 [package]
 name = "capture-desktop"
-version = "0.6.0"
+version = "0.7.0"
 description = "Desktop worker for Personal Capture System"
 edition = "2021"
 
@@ -25,3 +25,4 @@ dotenvy = "0.15.7"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-autostart = "2"
 tauri-plugin-single-instance = "2"
+tauri-plugin-notification = "2"

@@ -8,8 +8,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test": "node --test src/lib/*.test.mts src/app/manifest.test.mts src/app/offline-policy.test.mts src/app/english-layout.test.mts src/app/special-sync.test.mts src/app/journal-session.test.mts src/app/journal-sync.test.mts src/app/journal-ui.test.mts src/app/journal-view.test.mts src/app/journal-browser-events.test.mts src/app/api/captures/route.test.mts src/app/api/jobs/[[]id[]]/route.test.mts src/app/api/jobs/retry/route.test.mts src/app/api/journal-records/route.test.mts src/app/api/journal-records/trash/route.test.mts src/app/api/journal-records/[[]id[]]/route.test.mts src/app/api/journal-records/[[]id[]]/restore/route.test.mts src/app/api/journal-deliveries/route.test.mts src/app/api/journal-deliveries/claim/route.test.mts src/app/api/journal-deliveries/[[]attemptId[]]/route.test.mts src/app/api/english-deliveries/route.test.mts src/app/api/english-deliveries/claim/route.test.mts src/app/api/english-deliveries/[[]attemptId[]]/route.test.mts src/app/api/special-records/english/route.test.mts src/app/api/special-records/workout/route.test.mts src/app/api/special-records/workout/library/route.test.mts src/app/api/special-records/food/route.test.mts src/app/api/special-records/food/library/route.test.mts",
-    "typecheck": "tsc --noEmit"
+    "test": "node --test src/lib/*.test.mts src/app/manifest.test.mts src/app/offline-policy.test.mts src/app/english-layout.test.mts src/app/special-sync.test.mts src/app/journal-session.test.mts src/app/journal-sync.test.mts src/app/journal-ui.test.mts src/app/journal-view.test.mts src/app/journal-browser-events.test.mts src/app/api/captures/route.test.mts src/app/api/jobs/[[]id[]]/route.test.mts src/app/api/jobs/retry/route.test.mts src/app/api/journal-records/route.test.mts src/app/api/journal-records/trash/route.test.mts src/app/api/journal-records/[[]id[]]/route.test.mts src/app/api/journal-records/[[]id[]]/restore/route.test.mts src/app/api/journal-deliveries/route.test.mts src/app/api/journal-deliveries/claim/route.test.mts src/app/api/journal-deliveries/[[]attemptId[]]/route.test.mts src/app/api/todo-deliveries/claim/route.test.mts src/app/api/todo-deliveries/[[]attemptId[]]/route.test.mts src/app/api/english-deliveries/route.test.mts src/app/api/english-deliveries/claim/route.test.mts src/app/api/english-deliveries/[[]attemptId[]]/route.test.mts src/app/api/special-records/english/route.test.mts src/app/api/special-records/workout/route.test.mts src/app/api/special-records/workout/library/route.test.mts src/app/api/special-records/food/route.test.mts src/app/api/special-records/food/library/route.test.mts",
+    "typecheck": "tsc --noEmit",
+    "generate:vapid": "node scripts/generate-vapid.mjs"
   },
   "dependencies": {
     "@capture/recorder-kit": "workspace:*",
@@ -17,12 +18,14 @@
     "mongodb": "^7.5.0",
     "next": "16.3.0",
     "react": "19.2.8",
-    "react-dom": "19.2.8"
+    "react-dom": "19.2.8",
+    "web-push": "^3.6.7"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "@types/web-push": "^3.6.4",
     "eslint": "^9.0.0",
     "eslint-config-next": "16.3.0",
     "typescript": "^5.0.0"
